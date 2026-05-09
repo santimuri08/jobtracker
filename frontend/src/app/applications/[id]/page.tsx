@@ -1,6 +1,5 @@
 // frontend/src/app/applications/[id]/page.tsx
 "use client"
-
 import { useSession } from "next-auth/react"
 import { useParams, useRouter } from "next/navigation"
 import { useEffect, useState, useCallback } from "react"
@@ -10,6 +9,19 @@ import { apiFetch } from "@/lib/api"
 type Round = { id: number; round_number: number; type: string; scheduled_at: string | null; interviewer: string | null; outcome: string; notes: string | null }
 type Contact = { id: number; name: string; role: string | null; email: string | null; phone: string | null }
 type Note = { id: number; content: string; created_at: string }
+type ExperienceGap = { requirement: string; your_experience: string | null; gap: string }
+type GapAnalysis = {
+  id: number
+  application_id: number
+  fit_score: number | null
+  matched_skills: string[] | null
+  missing_skills: string[] | null
+  experience_gaps: ExperienceGap[] | null
+  recommendations: string[] | null
+  summary: string | null
+  created_at: string
+  updated_at: string
+}
 type AppDetail = {
   id: number
   company: string
@@ -22,6 +34,7 @@ type AppDetail = {
   salary_max: number | null
   applied_date: string | null
   source: string | null
+  resume_id: number | null
   interview_rounds: Round[]
   contacts: Contact[]
   notes: Note[]
@@ -43,7 +56,6 @@ export default function ApplicationDetailPage() {
       setError((e as Error).message)
     }
   }, [session, id])
-
   useEffect(() => { load() }, [load])
 
   async function updateStatus(newStatus: string) {
@@ -53,14 +65,12 @@ export default function ApplicationDetailPage() {
     })
     load()
   }
-
   async function deleteApp() {
     if (!session?.backendToken) return
     if (!confirm("Delete this application and all its data?")) return
     await apiFetch(`/api/v1/applications/${id}`, session.backendToken, { method: "DELETE" })
     router.push("/dashboard")
   }
-
   async function addRound() {
     if (!session?.backendToken || !appData) return
     await apiFetch(`/api/v1/applications/${id}/rounds`, session.backendToken, {
@@ -69,13 +79,11 @@ export default function ApplicationDetailPage() {
     })
     load()
   }
-
   async function deleteRound(roundId: number) {
     if (!session?.backendToken) return
     await apiFetch(`/api/v1/applications/${id}/rounds/${roundId}`, session.backendToken, { method: "DELETE" })
     load()
   }
-
   async function addContact(name: string, role: string) {
     if (!session?.backendToken) return
     await apiFetch(`/api/v1/applications/${id}/contacts`, session.backendToken, {
@@ -83,7 +91,6 @@ export default function ApplicationDetailPage() {
     })
     load()
   }
-
   async function addNote(content: string) {
     if (!session?.backendToken || !content.trim()) return
     await apiFetch(`/api/v1/applications/${id}/notes`, session.backendToken, {
@@ -98,7 +105,6 @@ export default function ApplicationDetailPage() {
   return (
     <main className="max-w-3xl mx-auto p-8">
       <Link href="/dashboard" className="text-sm underline">← Back to dashboard</Link>
-
       <div className="flex justify-between items-start mt-4">
         <div>
           <h1 className="text-2xl font-bold">{appData.company}</h1>
@@ -107,14 +113,12 @@ export default function ApplicationDetailPage() {
         </div>
         <button onClick={deleteApp} className="text-sm text-red-600 underline">Delete</button>
       </div>
-
       <div className="mt-4 flex gap-2 items-center">
         <span className="text-sm">Status:</span>
         <select value={appData.status} onChange={(e) => updateStatus(e.target.value)} className="border p-1 rounded">
           {["saved", "applied", "interviewing", "offer", "rejected", "withdrawn"].map(s => <option key={s} value={s}>{s}</option>)}
         </select>
       </div>
-
       {appData.job_url && <p className="mt-2 text-sm"><a href={appData.job_url} target="_blank" className="underline">View posting →</a></p>}
       {(appData.salary_min || appData.salary_max) && (
         <p className="mt-2 text-sm">Salary: {appData.salary_min ?? "?"} – {appData.salary_max ?? "?"}</p>
@@ -124,6 +128,16 @@ export default function ApplicationDetailPage() {
           <summary className="cursor-pointer text-sm">Job description</summary>
           <pre className="mt-2 text-sm whitespace-pre-wrap bg-gray-50 p-3 rounded">{appData.job_description}</pre>
         </details>
+      )}
+
+      {/* GAP ANALYSIS (Phase 4) */}
+      {session?.backendToken && (
+        <GapAnalysisCard
+          applicationId={appData.id}
+          token={session.backendToken}
+          hasResume={!!appData.resume_id}
+          hasJobDescription={!!appData.job_description}
+        />
       )}
 
       {/* INTERVIEW ROUNDS */}
@@ -174,6 +188,139 @@ export default function ApplicationDetailPage() {
         </ul>
       </section>
     </main>
+  )
+}
+
+function GapAnalysisCard({
+  applicationId,
+  token,
+  hasResume,
+  hasJobDescription,
+}: {
+  applicationId: number
+  token: string
+  hasResume: boolean
+  hasJobDescription: boolean
+}) {
+  const [analysis, setAnalysis] = useState<GapAnalysis | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    try {
+      const data = await apiFetch(
+        `/api/v1/applications/${applicationId}/gap-analysis`,
+        token
+      )
+      setAnalysis(data)
+    } catch (e) {
+      // 404 is normal: just means no analysis yet
+      const msg = (e as Error).message
+      if (!msg.toLowerCase().includes("404")) setErr(msg)
+      setAnalysis(null)
+    }
+  }, [applicationId, token])
+
+  useEffect(() => { load() }, [load])
+
+  async function run() {
+    setLoading(true); setErr(null)
+    try {
+      const data = await apiFetch(
+        `/api/v1/applications/${applicationId}/gap-analysis`,
+        token,
+        { method: "POST" }
+      )
+      setAnalysis(data)
+    } catch (e) {
+      setErr((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const disabled = loading || !hasResume || !hasJobDescription
+  const buttonLabel = analysis ? "Re-run analysis" : "Run gap analysis"
+
+  return (
+    <section className="border rounded p-4 mt-8">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-lg font-semibold">Gap analysis</h2>
+        <button
+          onClick={run}
+          disabled={disabled}
+          className="border px-3 py-1 rounded text-sm disabled:opacity-50"
+        >
+          {loading ? "Analyzing…" : buttonLabel}
+        </button>
+      </div>
+
+      {!hasJobDescription && (
+        <p className="text-sm text-gray-500">
+          Add a job description to enable gap analysis.
+        </p>
+      )}
+      {hasJobDescription && !hasResume && (
+        <p className="text-sm text-gray-500">
+          Link a parsed resume to this application to enable gap analysis.
+        </p>
+      )}
+      {err && <p className="text-sm text-red-600">{err}</p>}
+
+      {analysis && (
+        <div className="space-y-3">
+          <div>
+            <span className="text-sm text-gray-500">Fit score: </span>
+            <span className="text-2xl font-bold">{analysis.fit_score ?? "—"}</span>
+            <span className="text-sm text-gray-500"> / 100</span>
+          </div>
+
+          {analysis.summary && <p className="text-sm">{analysis.summary}</p>}
+
+          {analysis.matched_skills && analysis.matched_skills.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold mb-1">Matched skills</h3>
+              <div className="flex flex-wrap gap-1">
+                {analysis.matched_skills.map((s) => (
+                  <span key={s} className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded">{s}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {analysis.missing_skills && analysis.missing_skills.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold mb-1">Missing skills</h3>
+              <div className="flex flex-wrap gap-1">
+                {analysis.missing_skills.map((s) => (
+                  <span key={s} className="text-xs bg-red-100 text-red-800 px-2 py-0.5 rounded">{s}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {analysis.experience_gaps && analysis.experience_gaps.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold mb-1">Experience gaps</h3>
+              <ul className="text-sm space-y-1 list-disc pl-5">
+                {analysis.experience_gaps.map((g, i) => (
+                  <li key={i}><strong>{g.requirement}:</strong> {g.gap}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {analysis.recommendations && analysis.recommendations.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold mb-1">Recommendations</h3>
+              <ul className="text-sm space-y-1 list-disc pl-5">
+                {analysis.recommendations.map((r, i) => <li key={i}>{r}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   )
 }
 

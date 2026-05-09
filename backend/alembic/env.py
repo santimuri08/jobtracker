@@ -18,7 +18,9 @@ target_metadata = Base.metadata
 
 # We want Alembic to IGNORE the users table — Prisma owns it.
 def include_object(object, name, type_, reflected, compare_to):
-    if type_ == "table" and name in {"users", "accounts", "sessions", "verification_tokens"}:
+    if type_ == "table" and name in {
+        "users", "accounts", "sessions", "verification_tokens", "_prisma_migrations"
+    }:
         return False
     return True
 

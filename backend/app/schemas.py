@@ -94,8 +94,8 @@ class ResumeOut(ORMModel):
     id: int
     label: str
     filename: str
-    mime_type: Optional[str]
-    file_size: Optional[int]
+    content_type: Optional[str]
+    size_bytes: Optional[int]
     created_at: datetime
 
 
@@ -187,5 +187,25 @@ class ResumeParseOut(ORMModel):
     work_experience: list[WorkExperience] | None = None
     education: list[Education] | None = None
     parser_version: str
+    created_at: datetime
+    updated_at: datetime
+# --- GapAnalysis (Phase 4) ---
+
+class ExperienceGap(BaseModel):
+    requirement: str
+    your_experience: str | None = None
+    gap: str
+
+
+class GapAnalysisOut(ORMModel):
+    id: int
+    application_id: int
+    fit_score: int | None = None
+    matched_skills: list[str] | None = None
+    missing_skills: list[str] | None = None
+    experience_gaps: list[ExperienceGap] | None = None
+    recommendations: list[str] | None = None
+    summary: str | None = None
+    analyzer_version: str
     created_at: datetime
     updated_at: datetime

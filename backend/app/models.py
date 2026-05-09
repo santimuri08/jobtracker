@@ -84,6 +84,12 @@ class Application(Base):
     interview_rounds = relationship("InterviewRound", back_populates="application", cascade="all, delete-orphan", order_by="InterviewRound.round_number")
     contacts = relationship("Contact", back_populates="application", cascade="all, delete-orphan")
     notes = relationship("Note", back_populates="application", cascade="all, delete-orphan", order_by="Note.created_at.desc()")
+    gap_analysis = relationship(
+        "GapAnalysis",
+        back_populates="application",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
 
 # --- InterviewRound ---
@@ -192,3 +198,42 @@ class ResumeParse(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     resume = relationship("Resume", back_populates="parse")
+
+
+# --- GapAnalysis (Phase 4) ---
+
+class GapAnalysis(Base):
+    __tablename__ = "gap_analyses"
+
+    id = Column(Integer, primary_key=True)
+    application_id = Column(
+        Integer,
+        ForeignKey("applications.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+
+    # Top-level scalar
+    fit_score = Column(Integer, nullable=True)  # 0-100
+
+    # Structured arrays as JSON
+    matched_skills = Column(JSON, nullable=True)
+    missing_skills = Column(JSON, nullable=True)
+    experience_gaps = Column(JSON, nullable=True)
+    recommendations = Column(JSON, nullable=True)
+
+    summary = Column(Text, nullable=True)
+
+    # Metadata
+    analyzer_version = Column(String, nullable=False, default="claude-v1")
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    application = relationship("Application", back_populates="gap_analysis")

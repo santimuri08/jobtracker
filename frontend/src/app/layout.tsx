@@ -2,20 +2,18 @@
 import type { Metadata } from "next"
 import "./globals.css"
 import AuthSessionProvider from "@/components/SessionProvider"
-
 export const metadata: Metadata = {
   title: "JobTrackr",
   description: "Track your job applications",
 }
-
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
-      <body>
+    <html lang="en" suppressHydrationWarning>
+      <body suppressHydrationWarning>
         <AuthSessionProvider>{children}</AuthSessionProvider>
       </body>
     </html>
