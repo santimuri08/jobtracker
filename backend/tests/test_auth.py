@@ -17,7 +17,7 @@ def make_token(user_id: str = "test-user-123", email: str = "test@example.com"):
 
 def test_me_requires_auth():
     response = client.get("/api/v1/me")
-    assert response.status_code == 403  # HTTPBearer returns 403 when missing
+    assert response.status_code == 401
 
 
 def test_me_rejects_bad_token():

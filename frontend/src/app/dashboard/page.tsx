@@ -110,6 +110,7 @@ export default function DashboardPage() {
           <option value="company_asc">Company A→Z</option>
           <option value="applied_date_desc">Recently applied</option>
         </select>
+        <Link href="/resumes" className="border px-3 py-2 rounded text-sm">Resumes</Link>
         <Link href="/applications/new" className="bg-black text-white px-4 py-2 rounded">+ New</Link>
       </div>
 

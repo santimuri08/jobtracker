@@ -26,7 +26,12 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       JWT_ALGORITHM: HS256
       JWT_EXPIRES_IN: "86400"
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    volumes:
+      - ./backend:/app
+      - jobtrackr_resume_data:/data/resumes
     ports:
       - "8000:8000"
 volumes:
   jobtrackr_db_data:
+  jobtrackr_resume_data:

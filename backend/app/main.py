@@ -2,6 +2,7 @@
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.auth import CurrentUser, get_current_user
+from app.routers import applications, interview_rounds, contacts, notes, resumes
 
 app = FastAPI(title="JobTrackr Backend")
 
@@ -24,6 +25,8 @@ def me(user: CurrentUser = Depends(get_current_user)):
     return {"user_id": user.id, "email": user.email}
 
 
-@app.get("/api/v1/protected/ping")
-def protected_ping(user: CurrentUser = Depends(get_current_user)):
-    return {"message": f"Hello, user {user.id}", "user_id": user.id}
+app.include_router(applications.router)
+app.include_router(interview_rounds.router)
+app.include_router(contacts.router)
+app.include_router(notes.router)
+app.include_router(resumes.router)

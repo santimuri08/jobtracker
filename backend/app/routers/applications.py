@@ -1,0 +1,132 @@
+# backend/app/routers/applications.py
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import func
+from typing import Optional, List
+
+from app.database import get_db
+from app.auth import CurrentUser, get_current_user
+from app.models import Application, ApplicationStatus
+from app.schemas import (
+    ApplicationCreate, ApplicationUpdate, ApplicationOut,
+    ApplicationDetailOut, PipelineSummary,
+)
+
+router = APIRouter(prefix="/api/v1/applications", tags=["applications"])
+
+
+@router.get("", response_model=List[ApplicationOut])
+def list_applications(
+    status: Optional[ApplicationStatus] = None,
+    company: Optional[str] = None,
+    sort: str = Query("created_at_desc"),
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+):
+    q = db.query(Application).filter(Application.user_id == user.id)
+
+    if status:
+        q = q.filter(Application.status == status)
+    if company:
+        q = q.filter(Application.company.ilike(f"%{company}%"))
+
+    sort_map = {
+        "created_at_desc": Application.created_at.desc(),
+        "created_at_asc": Application.created_at.asc(),
+        "company_asc": Application.company.asc(),
+        "applied_date_desc": Application.applied_date.desc(),
+    }
+    q = q.order_by(sort_map.get(sort, Application.created_at.desc()))
+
+    return q.all()
+
+
+@router.get("/summary", response_model=PipelineSummary)
+def pipeline_summary(
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+):
+    rows = (
+        db.query(Application.status, func.count(Application.id))
+        .filter(Application.user_id == user.id)
+        .group_by(Application.status)
+        .all()
+    )
+    summary = PipelineSummary()
+    for status, count in rows:
+        setattr(summary, status.value, count)
+    summary.total = sum(count for _, count in rows)
+    return summary
+
+
+@router.post("", response_model=ApplicationOut, status_code=201)
+def create_application(
+    payload: ApplicationCreate,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+):
+    app_obj = Application(**payload.model_dump(), user_id=user.id)
+    db.add(app_obj)
+    db.commit()
+    db.refresh(app_obj)
+    return app_obj
+
+
+@router.get("/{application_id}", response_model=ApplicationDetailOut)
+def get_application(
+    application_id: int,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+):
+    app_obj = (
+        db.query(Application)
+        .options(
+            selectinload(Application.interview_rounds),
+            selectinload(Application.contacts),
+            selectinload(Application.notes),
+            selectinload(Application.resume),
+        )
+        .filter(Application.id == application_id, Application.user_id == user.id)
+        .first()
+    )
+    if not app_obj:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return app_obj
+
+
+@router.patch("/{application_id}", response_model=ApplicationOut)
+def update_application(
+    application_id: int,
+    payload: ApplicationUpdate,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+):
+    app_obj = (
+        db.query(Application)
+        .filter(Application.id == application_id, Application.user_id == user.id)
+        .first()
+    )
+    if not app_obj:
+        raise HTTPException(status_code=404, detail="Application not found")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(app_obj, field, value)
+    db.commit()
+    db.refresh(app_obj)
+    return app_obj
+
+
+@router.delete("/{application_id}", status_code=204)
+def delete_application(
+    application_id: int,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+):
+    app_obj = (
+        db.query(Application)
+        .filter(Application.id == application_id, Application.user_id == user.id)
+        .first()
+    )
+    if not app_obj:
+        raise HTTPException(status_code=404, detail="Application not found")
+    db.delete(app_obj)
+    db.commit()
