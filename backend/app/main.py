@@ -1,4 +1,6 @@
 # backend/app/main.py
+from contextlib import asynccontextmanager
+
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -12,10 +14,21 @@ from app.routers import (
     gap_analyses,
     cover_letters,
     bullet_rewrites,
-    similar_applications,
+    email_preferences,
 )
+from app.scheduler import start_scheduler, stop_scheduler
 
-app = FastAPI(title="JobTrackr Backend")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    start_scheduler()
+    try:
+        yield
+    finally:
+        stop_scheduler()
+
+
+app = FastAPI(title="JobTrackr Backend", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -44,4 +57,4 @@ app.include_router(resumes.router)
 app.include_router(gap_analyses.router)
 app.include_router(cover_letters.router)
 app.include_router(bullet_rewrites.router)
-app.include_router(similar_applications.router)
+app.include_router(email_preferences.router)

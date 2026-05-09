@@ -27,6 +27,11 @@ type Summary = {
   total: number
 }
 
+type EmailPreference = {
+  frequency: string
+  last_sent_at: string | null
+}
+
 const STATUSES = ["", "saved", "applied", "interviewing", "offer", "rejected", "withdrawn"]
 
 export default function DashboardPage() {
@@ -78,6 +83,11 @@ export default function DashboardPage() {
           </button>
         </div>
       </div>
+
+      {/* WEEKLY EMAIL PREFERENCES (Phase 7) */}
+      {session?.backendToken && (
+        <EmailPreferencesCard token={session.backendToken} />
+      )}
 
       {summary && (
         <div className="grid grid-cols-7 gap-2 mb-6">
@@ -141,5 +151,110 @@ export default function DashboardPage() {
 
       {apps.length === 0 && <p className="text-gray-500 mt-6 text-center">No applications yet. Click <strong>+ New</strong> to add your first one.</p>}
     </main>
+  )
+}
+
+
+// --- Phase 7: weekly email preferences card ---
+
+function EmailPreferencesCard({ token }: { token: string }) {
+  const [pref, setPref] = useState<EmailPreference | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [msg, setMsg] = useState("")
+  const [err, setErr] = useState("")
+
+  const load = useCallback(async () => {
+    try {
+      const data: EmailPreference = await apiFetch("/api/v1/email-preferences", token)
+      setPref(data)
+    } catch (e) {
+      setErr((e as Error).message)
+    }
+  }, [token])
+
+  useEffect(() => { load() }, [load])
+
+  async function setFrequency(freq: "weekly" | "off") {
+    setLoading(true); setErr(""); setMsg("")
+    try {
+      const data: EmailPreference = await apiFetch(
+        "/api/v1/email-preferences",
+        token,
+        { method: "PATCH", body: JSON.stringify({ frequency: freq }) },
+      )
+      setPref(data)
+      setMsg(freq === "off" ? "Weekly emails turned off." : "Weekly emails turned on.")
+    } catch (e) {
+      setErr((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function sendTest() {
+    setLoading(true); setErr(""); setMsg("")
+    try {
+      const data = await apiFetch(
+        "/api/v1/email-preferences/test",
+        token,
+        { method: "POST" },
+      )
+      if (data.sent) {
+        setMsg(`Sent to ${data.email_to}. Check your inbox in ~30 seconds.`)
+      } else {
+        setMsg(`Skipped: ${data.skipped_reason}`)
+      }
+      await load()
+    } catch (e) {
+      setErr((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <section className="border rounded p-4 mb-6 bg-white">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h2 className="text-base font-semibold">Weekly summary email</h2>
+          <p className="text-sm text-gray-600 mt-1">
+            {pref?.frequency === "weekly"
+              ? "On — you'll get a recap every Monday."
+              : "Off — you won't get scheduled emails."}
+            {pref?.last_sent_at && (
+              <> Last sent {new Date(pref.last_sent_at).toLocaleString()}.</>
+            )}
+          </p>
+          {msg && <p className="text-sm text-green-700 mt-2">{msg}</p>}
+          {err && <p className="text-sm text-red-600 mt-2">{err}</p>}
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={sendTest}
+            disabled={loading}
+            className="text-sm border px-3 py-1.5 rounded disabled:opacity-50"
+          >
+            {loading ? "Working..." : "Send test now"}
+          </button>
+          {pref?.frequency === "weekly" ? (
+            <button
+              onClick={() => setFrequency("off")}
+              disabled={loading}
+              className="text-sm border px-3 py-1.5 rounded disabled:opacity-50"
+            >
+              Turn off
+            </button>
+          ) : (
+            <button
+              onClick={() => setFrequency("weekly")}
+              disabled={loading}
+              className="text-sm border px-3 py-1.5 rounded bg-black text-white disabled:opacity-50"
+            >
+              Turn on
+            </button>
+          )}
+        </div>
+      </div>
+    </section>
   )
 }

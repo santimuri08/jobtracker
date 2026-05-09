@@ -257,3 +257,20 @@ class BulletVariant(BaseModel):
 class BulletRewriteOut(BaseModel):
     original: str
     variants: list[BulletVariant]
+
+# ---------- EMAIL PREFERENCES (Phase 7) ----------
+class EmailPreferenceOut(ORMModel):
+    frequency: str               # "weekly" | "off"
+    last_sent_at: Optional[datetime] = None
+
+
+class EmailPreferenceUpdate(BaseModel):
+    frequency: str               # "weekly" | "off"
+
+
+# ---------- WEEKLY SUMMARY TRIGGER (Phase 7) ----------
+class TriggerWeeklySummaryOut(BaseModel):
+    sent: bool
+    skipped_reason: Optional[str] = None
+    email_to: Optional[str] = None
+    summary_preview: Optional[str] = None    # first 200 chars, for sanity-check

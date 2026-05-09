@@ -19,9 +19,11 @@ def mock_claude(monkeypatch):
         import app.services.gap_analysis as gap_mod
         import app.services.cover_letter as cover_mod
         import app.services.bullet_rewriter as bullet_mod
+        import app.services.weekly_summary as weekly_mod
         monkeypatch.setattr(client_mod, "call_claude_json", _fake_call)
         monkeypatch.setattr(gap_mod, "call_claude_json", _fake_call)
         monkeypatch.setattr(cover_mod, "call_claude_json", _fake_call)
         monkeypatch.setattr(bullet_mod, "call_claude_json", _fake_call)
+        monkeypatch.setattr(weekly_mod, "call_claude_json", _fake_call)
 
     return _set

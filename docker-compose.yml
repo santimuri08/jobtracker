@@ -29,6 +29,9 @@ services:
       JWT_EXPIRES_IN: "86400"
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       VOYAGE_API_KEY: ${VOYAGE_API_KEY}
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL}
+      EMAIL_TEST_RECIPIENT: ${EMAIL_TEST_RECIPIENT}
     volumes:
       - ./backend:/app
       - jobtrackr_resume_data:/data/resumes

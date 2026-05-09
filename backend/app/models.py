@@ -54,6 +54,7 @@ class User(Base):
 
     applications = relationship("Application", back_populates="user", cascade="all, delete-orphan")
     resumes = relationship("Resume", back_populates="user", cascade="all, delete-orphan")
+    email_preference = relationship("EmailPreference", back_populates="user", uselist=False, cascade="all, delete-orphan")
 
 
 # --- Application ---
@@ -275,3 +276,51 @@ class CoverLetter(Base):
     )
 
     application = relationship("Application", back_populates="cover_letters")
+
+
+# --- EmailPreference (Phase 7) ---
+
+class EmailPreference(Base):
+    __tablename__ = "email_preferences"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(
+        String,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+
+    # "weekly" or "off"
+    frequency = Column(String, nullable=False, default="weekly")
+    # When the last email was successfully sent
+    last_sent_at = Column(DateTime(timezone=True), nullable=True)
+    # Random opaque token for one-click unsubscribe links
+    unsubscribe_token = Column(String, nullable=False, unique=True, index=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user = relationship("User", back_populates="email_preference")
+
+
+# --- ScheduledJobRun (Phase 7) ---
+
+class ScheduledJobRun(Base):
+    __tablename__ = "scheduled_job_runs"
+
+    id = Column(Integer, primary_key=True)
+    job_name = Column(String, nullable=False, index=True)   # e.g. "weekly_summary"
+    status = Column(String, nullable=False)                 # "success" | "error"
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    duration_ms = Column(Integer, nullable=True)
+    users_processed = Column(Integer, nullable=True)
+    emails_sent = Column(Integer, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
