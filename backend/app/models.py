@@ -5,6 +5,7 @@ from sqlalchemy import (
     Numeric, Date, Boolean, func
 )
 from sqlalchemy.orm import relationship
+from pgvector.sqlalchemy import Vector
 import enum
 
 from app.database import Base
@@ -78,6 +79,8 @@ class Application(Base):
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    embedding = Column(Vector(1024), nullable=True)
 
     user = relationship("User", back_populates="applications")
     resume = relationship("Resume", back_populates="applications")

@@ -15,6 +15,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
   backend:
     build: ./backend
     restart: unless-stopped
@@ -27,11 +28,13 @@ services:
       JWT_ALGORITHM: HS256
       JWT_EXPIRES_IN: "86400"
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      VOYAGE_API_KEY: ${VOYAGE_API_KEY}
     volumes:
       - ./backend:/app
       - jobtrackr_resume_data:/data/resumes
     ports:
       - "8000:8000"
+
 volumes:
   jobtrackr_db_data:
   jobtrackr_resume_data:

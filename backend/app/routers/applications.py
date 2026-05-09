@@ -1,4 +1,5 @@
 # backend/app/routers/applications.py
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func
@@ -11,8 +12,35 @@ from app.schemas import (
     ApplicationCreate, ApplicationUpdate, ApplicationOut,
     ApplicationDetailOut, PipelineSummary,
 )
+from app.services.embeddings import build_application_text, embed_document
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/applications", tags=["applications"])
+
+
+def _maybe_embed(app_obj: Application) -> None:
+    """
+    Set app_obj.embedding from the current text fields, IF there's enough text.
+    No-op if the application has no job_description (we don't embed shells).
+    Errors are swallowed with a log line — embedding failures must not break save.
+    """
+    if not app_obj.job_description or not app_obj.job_description.strip():
+        app_obj.embedding = None
+        return
+
+    text = build_application_text(
+        company=app_obj.company,
+        role=app_obj.role,
+        location=app_obj.location,
+        job_description=app_obj.job_description,
+    )
+    try:
+        app_obj.embedding = embed_document(text)
+    except Exception as e:
+        # Don't fail the save just because the embedding service had a hiccup.
+        logger.warning("Embedding generation failed for app id=%s: %s", app_obj.id, e)
+        app_obj.embedding = None
 
 
 @router.get("", response_model=List[ApplicationOut])
@@ -66,6 +94,7 @@ def create_application(
     user: CurrentUser = Depends(get_current_user),
 ):
     app_obj = Application(**payload.model_dump(), user_id=user.id)
+    _maybe_embed(app_obj)
     db.add(app_obj)
     db.commit()
     db.refresh(app_obj)
@@ -108,8 +137,18 @@ def update_application(
     )
     if not app_obj:
         raise HTTPException(status_code=404, detail="Application not found")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+
+    data = payload.model_dump(exclude_unset=True)
+    text_fields = {"company", "role", "location", "job_description"}
+    text_changed = any(k in data for k in text_fields)
+
+    for field, value in data.items():
         setattr(app_obj, field, value)
+
+    # If any of the embeddable fields changed, re-embed.
+    if text_changed:
+        _maybe_embed(app_obj)
+
     db.commit()
     db.refresh(app_obj)
     return app_obj

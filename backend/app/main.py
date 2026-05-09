@@ -12,6 +12,7 @@ from app.routers import (
     gap_analyses,
     cover_letters,
     bullet_rewrites,
+    similar_applications,
 )
 
 app = FastAPI(title="JobTrackr Backend")
@@ -43,3 +44,4 @@ app.include_router(resumes.router)
 app.include_router(gap_analyses.router)
 app.include_router(cover_letters.router)
 app.include_router(bullet_rewrites.router)
+app.include_router(similar_applications.router)

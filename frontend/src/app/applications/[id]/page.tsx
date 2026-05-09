@@ -34,6 +34,14 @@ type CoverLetter = {
 }
 type BulletVariant = { style: string; text: string; rationale: string | null }
 type BulletRewriteResult = { original: string; variants: BulletVariant[] }
+type SimilarApp = {
+  id: number
+  company: string
+  role: string
+  location: string | null
+  status: string
+  similarity: number
+}
 type AppDetail = {
   id: number
   company: string
@@ -159,6 +167,15 @@ export default function ApplicationDetailPage() {
           token={session.backendToken}
           hasJobDescription={!!appData.job_description}
           hasResume={!!appData.resume_id}
+        />
+      )}
+
+      {/* SIMILAR APPLICATIONS (Phase 6) */}
+      {session?.backendToken && (
+        <SimilarApplicationsCard
+          applicationId={appData.id}
+          token={session.backendToken}
+          hasJobDescription={!!appData.job_description}
         />
       )}
 
@@ -671,6 +688,98 @@ function BulletRewriterCard({
             </div>
           ))}
         </div>
+      )}
+    </section>
+  )
+}
+
+function SimilarApplicationsCard({
+  applicationId,
+  token,
+  hasJobDescription,
+}: {
+  applicationId: number
+  token: string
+  hasJobDescription: boolean
+}) {
+  const [results, setResults] = useState<SimilarApp[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+
+  async function search() {
+    setLoading(true)
+    setError("")
+    try {
+      const data: SimilarApp[] = await apiFetch(
+        `/api/v1/applications/${applicationId}/similar?limit=5`,
+        token,
+      )
+      setResults(data)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <section className="mt-8 border rounded p-4">
+      <h2 className="text-lg font-semibold mb-2">Similar applications</h2>
+      <p className="text-sm text-gray-600 mb-3">
+        Find other roles you&apos;ve saved that look like this one — by job description, not just company name.
+      </p>
+
+      {!hasJobDescription && (
+        <p className="text-sm text-gray-500">
+          Add a job description to this application to enable similarity search.
+        </p>
+      )}
+
+      {hasJobDescription && (
+        <button
+          onClick={search}
+          disabled={loading}
+          className="bg-black text-white px-3 py-1 rounded text-sm disabled:opacity-50"
+        >
+          {loading ? "Searching..." : results ? "Search again" : "Find similar roles"}
+        </button>
+      )}
+
+      {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
+
+      {results && results.length === 0 && (
+        <p className="text-sm text-gray-500 mt-3">
+          No other applications with embeddings found yet. Save a few more applications with job descriptions to compare.
+        </p>
+      )}
+
+      {results && results.length > 0 && (
+        <ul className="mt-4 space-y-2">
+          {results.map((r) => (
+            <li
+              key={r.id}
+              className="border rounded p-3 flex items-center justify-between"
+            >
+              <div>
+                <Link
+                  href={`/applications/${r.id}`}
+                  className="font-medium underline"
+                >
+                  {r.role} — {r.company}
+                </Link>
+                <div className="text-xs text-gray-500">
+                  {r.location || "—"} · {r.status}
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-lg font-bold">
+                  {(r.similarity * 100).toFixed(0)}%
+                </div>
+                <div className="text-xs text-gray-500">match</div>
+              </div>
+            </li>
+          ))}
+        </ul>
       )}
     </section>
   )
