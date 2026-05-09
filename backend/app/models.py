@@ -2,7 +2,7 @@
 from datetime import datetime
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, ForeignKey, Enum, JSON,
-    Numeric, Date, func
+    Numeric, Date, Boolean, func
 )
 from sqlalchemy.orm import relationship
 import enum
@@ -89,6 +89,12 @@ class Application(Base):
         back_populates="application",
         uselist=False,
         cascade="all, delete-orphan",
+    )
+    cover_letters = relationship(
+        "CoverLetter",
+        back_populates="application",
+        cascade="all, delete-orphan",
+        order_by="CoverLetter.created_at.desc()",
     )
 
 
@@ -237,3 +243,32 @@ class GapAnalysis(Base):
     )
 
     application = relationship("Application", back_populates="gap_analysis")
+
+
+# --- CoverLetter (Phase 5) ---
+
+class CoverLetter(Base):
+    __tablename__ = "cover_letters"
+
+    id = Column(Integer, primary_key=True)
+    application_id = Column(
+        Integer,
+        ForeignKey("applications.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    content = Column(Text, nullable=False)
+    version_label = Column(String, nullable=True)  # e.g. "Draft 1", "Final"
+    is_active = Column(Boolean, nullable=False, default=False)
+
+    generator_version = Column(String, nullable=False, default="claude-v1")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    application = relationship("Application", back_populates="cover_letters")

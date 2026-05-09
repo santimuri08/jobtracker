@@ -22,6 +22,18 @@ type GapAnalysis = {
   created_at: string
   updated_at: string
 }
+type CoverLetter = {
+  id: number
+  application_id: number
+  content: string
+  version_label: string | null
+  is_active: boolean
+  generator_version: string
+  created_at: string
+  updated_at: string
+}
+type BulletVariant = { style: string; text: string; rationale: string | null }
+type BulletRewriteResult = { original: string; variants: BulletVariant[] }
 type AppDetail = {
   id: number
   company: string
@@ -137,6 +149,24 @@ export default function ApplicationDetailPage() {
           token={session.backendToken}
           hasResume={!!appData.resume_id}
           hasJobDescription={!!appData.job_description}
+        />
+      )}
+
+      {/* COVER LETTER (Phase 5) */}
+      {session?.backendToken && (
+        <CoverLetterCard
+          applicationId={String(appData.id)}
+          token={session.backendToken}
+          hasJobDescription={!!appData.job_description}
+          hasResume={!!appData.resume_id}
+        />
+      )}
+
+      {/* BULLET REWRITER (Phase 5) */}
+      {session?.backendToken && (
+        <BulletRewriterCard
+          jobDescription={appData.job_description}
+          token={session.backendToken}
         />
       )}
 
@@ -318,6 +348,328 @@ function GapAnalysisCard({
               </ul>
             </div>
           )}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function CoverLetterCard({
+  applicationId,
+  hasJobDescription,
+  hasResume,
+  token,
+}: {
+  applicationId: string
+  hasJobDescription: boolean
+  hasResume: boolean
+  token: string
+}) {
+  const [letters, setLetters] = useState<CoverLetter[]>([])
+  const [activeId, setActiveId] = useState<number | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState("")
+  const [tone, setTone] = useState("")
+  const [extra, setExtra] = useState("")
+
+  const load = useCallback(async () => {
+    try {
+      const data: CoverLetter[] = await apiFetch(
+        `/api/v1/applications/${applicationId}/cover-letters`,
+        token,
+      )
+      setLetters(data)
+      const active = data.find(l => l.is_active) ?? data[0] ?? null
+      setActiveId(active?.id ?? null)
+      setDraft(active?.content ?? "")
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }, [applicationId, token])
+
+  useEffect(() => { load() }, [load])
+
+  const active = letters.find(l => l.id === activeId) ?? null
+
+  async function generate() {
+    setLoading(true); setError("")
+    try {
+      const created: CoverLetter = await apiFetch(
+        `/api/v1/applications/${applicationId}/cover-letters`,
+        token,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            tone: tone || null,
+            extra_instructions: extra || null,
+          }),
+        },
+      )
+      await load()
+      setActiveId(created.id)
+      setDraft(created.content)
+      setEditing(false)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function saveEdit() {
+    if (!active) return
+    setLoading(true); setError("")
+    try {
+      await apiFetch(
+        `/api/v1/applications/${applicationId}/cover-letters/${active.id}`,
+        token,
+        { method: "PATCH", body: JSON.stringify({ content: draft }) },
+      )
+      await load()
+      setEditing(false)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function setActive(letterId: number) {
+    setLoading(true); setError("")
+    try {
+      await apiFetch(
+        `/api/v1/applications/${applicationId}/cover-letters/${letterId}`,
+        token,
+        { method: "PATCH", body: JSON.stringify({ is_active: true }) },
+      )
+      await load()
+      setActiveId(letterId)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function deleteLetter(letterId: number) {
+    if (!confirm("Delete this version?")) return
+    setLoading(true); setError("")
+    try {
+      await apiFetch(
+        `/api/v1/applications/${applicationId}/cover-letters/${letterId}`,
+        token,
+        { method: "DELETE" },
+      )
+      await load()
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function copyToClipboard() {
+    if (!active) return
+    navigator.clipboard.writeText(active.content)
+  }
+
+  const canGenerate = hasJobDescription && hasResume
+
+  return (
+    <section className="mt-8 border rounded p-4">
+      <h2 className="text-lg font-semibold mb-2">Cover letter</h2>
+
+      {!canGenerate && (
+        <p className="text-sm text-gray-600 mb-3">
+          {!hasJobDescription && "Add a job description to this application. "}
+          {!hasResume && "Link a resume (with a parsed version) to this application."}
+        </p>
+      )}
+
+      {/* Generate controls */}
+      <div className="flex flex-col gap-2 mb-3 sm:flex-row sm:items-end">
+        <div className="flex-1">
+          <label className="block text-xs text-gray-600">Tone (optional)</label>
+          <input
+            value={tone}
+            onChange={e => setTone(e.target.value)}
+            placeholder="e.g. friendly, formal, enthusiastic"
+            className="border p-1 rounded w-full text-sm"
+          />
+        </div>
+        <div className="flex-1">
+          <label className="block text-xs text-gray-600">Extra instructions (optional)</label>
+          <input
+            value={extra}
+            onChange={e => setExtra(e.target.value)}
+            placeholder="e.g. mention my open-source contributions"
+            className="border p-1 rounded w-full text-sm"
+          />
+        </div>
+        <button
+          onClick={generate}
+          disabled={!canGenerate || loading}
+          className="border px-3 py-1 rounded text-sm disabled:opacity-50"
+        >
+          {loading ? "Working..." : letters.length === 0 ? "Generate" : "Generate new draft"}
+        </button>
+      </div>
+
+      {error && <p className="text-red-600 text-sm mb-2">{error}</p>}
+
+      {/* Version picker */}
+      {letters.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-3">
+          {letters.map(l => (
+            <button
+              key={l.id}
+              onClick={() => { setActiveId(l.id); setDraft(l.content); setEditing(false) }}
+              className={`text-xs border px-2 py-1 rounded ${
+                l.id === activeId ? "bg-black text-white" : ""
+              }`}
+            >
+              {l.version_label ?? `#${l.id}`}{l.is_active ? " ★" : ""}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Active letter */}
+      {active && (
+        <div className="border-t pt-3">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-xs text-gray-500">
+              {active.version_label ?? `#${active.id}`} · updated {new Date(active.updated_at).toLocaleString()}
+              {active.is_active && " · active"}
+            </span>
+            <div className="flex gap-2">
+              {!active.is_active && (
+                <button onClick={() => setActive(active.id)} className="text-xs underline">
+                  Make active
+                </button>
+              )}
+              <button onClick={copyToClipboard} className="text-xs underline">Copy</button>
+              <button onClick={() => setEditing(e => !e)} className="text-xs underline">
+                {editing ? "Cancel" : "Edit"}
+              </button>
+              <button onClick={() => deleteLetter(active.id)} className="text-xs text-red-600 underline">
+                Delete
+              </button>
+            </div>
+          </div>
+
+          {editing ? (
+            <>
+              <textarea
+                value={draft}
+                onChange={e => setDraft(e.target.value)}
+                rows={14}
+                className="w-full border p-2 rounded text-sm font-mono"
+              />
+              <div className="mt-2 flex gap-2">
+                <button onClick={saveEdit} disabled={loading} className="border px-3 py-1 rounded text-sm">
+                  {loading ? "Saving..." : "Save"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <pre className="whitespace-pre-wrap text-sm bg-gray-50 p-3 rounded">
+              {active.content}
+            </pre>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function BulletRewriterCard({
+  jobDescription,
+  token,
+}: {
+  jobDescription: string | null
+  token: string
+}) {
+  const [bullet, setBullet] = useState("")
+  const [result, setResult] = useState<BulletRewriteResult | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+
+  async function rewrite() {
+    if (!bullet.trim()) return
+    setLoading(true); setError(""); setResult(null)
+    try {
+      const data: BulletRewriteResult = await apiFetch(
+        `/api/v1/bullet-rewrites`,
+        token,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            bullet,
+            job_description: jobDescription,
+          }),
+        },
+      )
+      setResult(data)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function copy(text: string) {
+    navigator.clipboard.writeText(text)
+  }
+
+  return (
+    <section className="mt-8 border rounded p-4">
+      <h2 className="text-lg font-semibold mb-2">Bullet rewriter</h2>
+      <p className="text-xs text-gray-600 mb-2">
+        Paste one resume bullet. Get three rewrites tailored to this application&apos;s JD.
+      </p>
+
+      <textarea
+        value={bullet}
+        onChange={e => setBullet(e.target.value)}
+        rows={3}
+        placeholder="e.g. Built the analytics dashboard used by the sales team."
+        className="w-full border p-2 rounded text-sm"
+      />
+
+      <div className="mt-2 flex gap-2 items-center">
+        <button
+          onClick={rewrite}
+          disabled={loading || !bullet.trim()}
+          className="border px-3 py-1 rounded text-sm disabled:opacity-50"
+        >
+          {loading ? "Rewriting..." : "Rewrite"}
+        </button>
+        {!jobDescription && (
+          <span className="text-xs text-gray-500">
+            (no JD on this app — rewrites will be generic)
+          </span>
+        )}
+      </div>
+
+      {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
+
+      {result && (
+        <div className="mt-4 space-y-3">
+          {result.variants.map((v, i) => (
+            <div key={i} className="border rounded p-3">
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-xs uppercase tracking-wide text-gray-500">{v.style}</span>
+                <button onClick={() => copy(v.text)} className="text-xs underline">Copy</button>
+              </div>
+              <p className="text-sm">{v.text}</p>
+              {v.rationale && (
+                <p className="text-xs text-gray-500 mt-1 italic">{v.rationale}</p>
+              )}
+            </div>
+          ))}
         </div>
       )}
     </section>

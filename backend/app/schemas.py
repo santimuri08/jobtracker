@@ -156,6 +156,7 @@ class PipelineSummary(BaseModel):
     withdrawn: int = 0
     total: int = 0
 
+
 # --- Resume parsing ---
 
 class WorkExperience(BaseModel):
@@ -166,12 +167,14 @@ class WorkExperience(BaseModel):
     location: str | None = None
     bullets: list[str] = []
 
+
 class Education(BaseModel):
     school: str | None = None
     degree: str | None = None
     field: str | None = None
     start_date: str | None = None
     end_date: str | None = None
+
 
 class ResumeParseOut(ORMModel):
     id: int
@@ -189,6 +192,8 @@ class ResumeParseOut(ORMModel):
     parser_version: str
     created_at: datetime
     updated_at: datetime
+
+
 # --- GapAnalysis (Phase 4) ---
 
 class ExperienceGap(BaseModel):
@@ -209,3 +214,46 @@ class GapAnalysisOut(ORMModel):
     analyzer_version: str
     created_at: datetime
     updated_at: datetime
+
+
+# --- Cover letter (Phase 5) ---
+
+class CoverLetterGenerateIn(BaseModel):
+    """Optional fields the user can pass when generating."""
+    tone: str | None = None              # e.g. "friendly", "formal", "enthusiastic"
+    extra_instructions: str | None = None  # free-text guidance to Claude
+
+
+class CoverLetterUpdate(BaseModel):
+    content: str | None = None
+    version_label: str | None = None
+    is_active: bool | None = None
+
+
+class CoverLetterOut(ORMModel):
+    id: int
+    application_id: int
+    content: str
+    version_label: str | None = None
+    is_active: bool
+    generator_version: str
+    created_at: datetime
+    updated_at: datetime
+
+
+# --- Bullet rewrite (Phase 5) ---
+
+class BulletRewriteIn(BaseModel):
+    bullet: str
+    job_description: str | None = None  # optional; if None we still rewrite generically
+
+
+class BulletVariant(BaseModel):
+    style: str        # "impact" | "concise" | "ats"
+    text: str
+    rationale: str | None = None
+
+
+class BulletRewriteOut(BaseModel):
+    original: str
+    variants: list[BulletVariant]

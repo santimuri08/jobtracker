@@ -1,17 +1,12 @@
 # backend/tests/conftest.py
-"""Shared pytest fixtures."""
 import pytest
 
 
 @pytest.fixture
 def mock_claude(monkeypatch):
     """
-    Patch app.services.claude_client.call_claude_json to return a canned dict.
-
-    Usage in a test:
-        def test_something(mock_claude):
-            mock_claude({"fit_score": 80, ...})
-            # now any code that calls call_claude_json gets that dict back
+    Patch call_claude_json everywhere it's been imported.
+    Each new AI service module needs one extra patch line below.
     """
     holder = {"response": {}}
 
@@ -20,10 +15,13 @@ def mock_claude(monkeypatch):
 
     def _set(response: dict):
         holder["response"] = response
-        # Patch every place that imported the function
         import app.services.claude_client as client_mod
         import app.services.gap_analysis as gap_mod
+        import app.services.cover_letter as cover_mod
+        import app.services.bullet_rewriter as bullet_mod
         monkeypatch.setattr(client_mod, "call_claude_json", _fake_call)
         monkeypatch.setattr(gap_mod, "call_claude_json", _fake_call)
+        monkeypatch.setattr(cover_mod, "call_claude_json", _fake_call)
+        monkeypatch.setattr(bullet_mod, "call_claude_json", _fake_call)
 
     return _set
