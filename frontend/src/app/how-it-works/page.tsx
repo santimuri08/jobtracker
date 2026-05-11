@@ -3,14 +3,16 @@
 
 import Link from "next/link"
 import { useSession } from "next-auth/react"
+import { Reveal, GradientText } from "@/components/Reveal"
+import { TiltCard } from "@/components/TiltCard"
+import { MagneticButton } from "@/components/MagneticButton"
 
 export default function HowItWorksPage() {
   const { status } = useSession()
   const isAuthed = status === "authenticated"
 
   return (
-    <main className="relative min-h-[calc(100vh-3.5rem)]">
-      {/* Subtle radial glow */}
+    <main className="relative min-h-[calc(100vh-4rem)]">
       <div
         className="absolute inset-x-0 top-0 h-[600px] pointer-events-none"
         style={{
@@ -19,29 +21,30 @@ export default function HowItWorksPage() {
         }}
       />
 
-      <div className="relative max-w-4xl mx-auto px-6 pt-16 pb-24">
-        {/* Pill */}
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-[color:var(--border-strong)] bg-[color:var(--bg-elevated)] text-xs uppercase tracking-wider text-[color:var(--text-muted)]">
+      <div className="relative max-w-4xl mx-auto px-6 pt-20 pb-32">
+        <div className="text-center mb-8">
+          <div
+            className="inline-flex items-center gap-2 px-4 py-1.5 border border-[color:var(--border-strong)] bg-[color:var(--bg-elevated)] text-xs uppercase tracking-wider text-[color:var(--text-muted)]"
+            style={{ borderRadius: "var(--radius-pill)" }}
+          >
             <span className="logo-dot" />
             How it works
           </div>
         </div>
 
-        {/* Hero */}
-        <h1 className="text-4xl md:text-6xl font-bold tracking-tight text-center leading-[1.05] mb-6">
-          Your job search,
-          <br />
-          <span className="bg-gradient-to-r from-[color:var(--accent)] to-[#9DB4FF] bg-clip-text text-transparent">
-            run by an agent.
-          </span>
+        <h1 className="font-display-hero text-5xl md:text-7xl text-center leading-[1.02] mb-8 hover-glow">
+          <Reveal mode="word" eager className="block font-light">
+            Your job search,
+          </Reveal>
+          <Reveal mode="word" delay={400} eager className="block font-bold mt-2">
+            run by an <GradientText glow>agent.</GradientText>
+          </Reveal>
         </h1>
 
-        <p className="text-lg text-[color:var(--text-muted)] text-center max-w-2xl mx-auto mb-20">
-          JobAgent is a chat-first tool. You talk to it like you'd text a friend who's helping you job hunt — and it actually does the work.
-        </p>
+        <Reveal mode="line" delay={1000} eager as="p" className="text-lg md:text-xl text-[color:var(--text-muted)] text-center max-w-2xl mx-auto mb-24 leading-relaxed">
+          JobAgent is a chat-first tool. You talk to it like you&apos;d text a friend who&apos;s helping you job hunt — and it actually does the work.
+        </Reveal>
 
-        {/* Step 1 */}
         <Step
           number="01"
           title="Tell the agent what just happened"
@@ -52,7 +55,6 @@ export default function HowItWorksPage() {
           ]}
         />
 
-        {/* Step 2 */}
         <Step
           number="02"
           title="Ask for AI help, in plain language"
@@ -63,7 +65,6 @@ export default function HowItWorksPage() {
           ]}
         />
 
-        {/* Step 3 */}
         <Step
           number="03"
           title="Track it all in the dashboard"
@@ -73,23 +74,21 @@ export default function HowItWorksPage() {
           ]}
         />
 
-        {/* Step 4 */}
         <Step
           number="04"
           title="Get a weekly recap by email"
           body="Every Monday morning, JobAgent emails you a summary: what you applied to, what's pending, suggested next steps. Toggle it on or off from the dashboard."
         />
 
-        {/* What the agent can do */}
-        <section className="mt-24 mb-16">
-          <h2 className="text-3xl font-bold tracking-tight text-center mb-2">
+        <section className="mt-32 mb-20">
+          <Reveal as="h2" className="font-display block text-4xl md:text-5xl font-bold tracking-tight text-center mb-4 leading-[1.05]">
             What the agent can do
-          </h2>
-          <p className="text-[color:var(--text-muted)] text-center mb-10">
+          </Reveal>
+          <Reveal as="p" delay={120} className="block text-[color:var(--text-muted)] text-center mb-14 text-base md:text-lg">
             Every action below is one chat message away.
-          </p>
+          </Reveal>
 
-          <div className="grid md:grid-cols-2 gap-3">
+          <div className="grid md:grid-cols-2 gap-4">
             <Capability icon="➕" label="Add a new application" />
             <Capability icon="✏️" label="Update status, salary, or any field" />
             <Capability icon="🗑️" label="Delete an application" />
@@ -105,31 +104,32 @@ export default function HowItWorksPage() {
           </div>
         </section>
 
-        {/* CTA */}
-        <section className="mt-24 text-center">
-          <h2 className="text-3xl md:text-4xl font-bold tracking-tight mb-4">
-            Ready to chat your way through the search?
-          </h2>
-          <p className="text-[color:var(--text-muted)] mb-8 max-w-xl mx-auto">
+        <section className="mt-32 text-center">
+          <Reveal as="h2" className="font-display-hero block text-4xl md:text-5xl font-bold tracking-tight mb-6 leading-[1.05] hover-glow">
+            Ready to chat your way <br className="hidden md:block" />
+            through the <GradientText glow>search?</GradientText>
+          </Reveal>
+          <Reveal as="p" delay={150} className="block text-[color:var(--text-muted)] mb-12 max-w-xl mx-auto text-base md:text-lg">
             No credit card. No 14-step onboarding. Just sign up and start talking.
-          </p>
+          </Reveal>
+
           {isAuthed ? (
-            <div className="flex gap-3 justify-center">
-              <Link href="/" className="btn-primary text-sm px-6 py-3 inline-block">
+            <div className="flex gap-4 justify-center">
+              <MagneticButton href="/" className="btn-primary text-sm">
                 Open the chat
-              </Link>
-              <Link href="/dashboard" className="btn-secondary text-sm px-6 py-3 inline-block">
+              </MagneticButton>
+              <MagneticButton href="/dashboard" className="btn-secondary text-sm">
                 Go to dashboard
-              </Link>
+              </MagneticButton>
             </div>
           ) : (
-            <div className="flex gap-3 justify-center">
-              <Link href="/signup" className="btn-primary text-sm px-6 py-3 inline-block">
-                Get started — it's free
-              </Link>
-              <Link href="/" className="btn-secondary text-sm px-6 py-3 inline-block">
+            <div className="flex gap-4 justify-center">
+              <MagneticButton href="/signup" className="btn-primary text-sm">
+                Get started — it&apos;s free
+              </MagneticButton>
+              <MagneticButton href="/" className="btn-secondary text-sm">
                 Try the demo
-              </Link>
+              </MagneticButton>
             </div>
           )}
         </section>
@@ -151,21 +151,23 @@ function Step({
   examples?: { user: string; agent: string }[]
 }) {
   return (
-    <section className="mb-20">
-      <div className="flex items-baseline gap-4 mb-3">
+    <section className="mb-24 scroll-fade">
+      <div className="flex items-baseline gap-4 mb-4">
         <span className="text-sm font-mono text-[color:var(--accent)] tracking-wider">
           {number}
         </span>
-        <h2 className="text-2xl md:text-3xl font-bold tracking-tight">{title}</h2>
+        <Reveal as="h2" className="font-display block text-2xl md:text-3xl font-bold tracking-tight">
+          {title}
+        </Reveal>
       </div>
-      <p className="text-[color:var(--text-muted)] mb-6 leading-relaxed">
+      <Reveal as="p" delay={100} className="block text-[color:var(--text-muted)] mb-8 leading-relaxed text-base md:text-lg">
         {body}
-      </p>
+      </Reveal>
 
       {examples && examples.length > 0 && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {examples.map((ex, i) => (
-            <div key={i} className="card space-y-2 p-4">
+            <div key={i} className="card space-y-3">
               <ChatBubble role="user" text={ex.user} />
               <ChatBubble role="agent" text={ex.agent} />
             </div>
@@ -182,11 +184,17 @@ function ChatBubble({ role, text }: { role: "user" | "agent"; text: string }) {
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
-        className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
+        className={`max-w-[85%] px-5 py-3 text-sm leading-relaxed ${
           isUser
-            ? "bg-[color:var(--accent)] text-white rounded-br-md"
-            : "bg-[color:var(--bg-hover)] text-[color:var(--text)] rounded-bl-md"
+            ? "bg-[color:var(--accent)] text-white"
+            : "bg-[color:var(--bg-hover)] text-[color:var(--text)]"
         }`}
+        style={{
+          borderRadius: "var(--radius-md)",
+          ...(isUser
+            ? { borderBottomRightRadius: "8px" }
+            : { borderBottomLeftRadius: "8px" }),
+        }}
       >
         {!isUser && (
           <div className="flex items-center gap-1.5 mb-1 text-xs text-[color:var(--accent)] font-semibold">
@@ -203,9 +211,15 @@ function ChatBubble({ role, text }: { role: "user" | "agent"; text: string }) {
 
 function Capability({ icon, label }: { icon: string; label: string }) {
   return (
-    <div className="card flex items-center gap-3 hover:border-[color:var(--accent)] transition-colors">
-      <span className="text-xl">{icon}</span>
-      <span className="text-sm text-[color:var(--text)]">{label}</span>
-    </div>
+    <TiltCard
+      max={5}
+      glareOpacity={0.08}
+      className="card hover:border-[color:var(--accent)] transition-colors h-full"
+    >
+      <div className="flex items-center gap-4">
+        <span className="text-xl">{icon}</span>
+        <span className="text-sm text-[color:var(--text)]">{label}</span>
+      </div>
+    </TiltCard>
   )
 }

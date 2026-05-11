@@ -4,20 +4,20 @@
 import { useState } from "react"
 import Link from "next/link"
 import { useSession } from "next-auth/react"
-import { Chat } from "@/components/Chat"
+import { ImmersiveChat } from "@/components/ImmersiveChat"
+import { Reveal, GradientText } from "@/components/Reveal"
+import { AICore } from "@/components/AICore"
 
 const SUGGESTIONS_LOGGED_OUT = [
   "I applied to Stripe for senior backend",
   "Show me my pipeline",
   "Write a cover letter for my last application",
-  "Find similar roles to Figma",
 ]
 
 const SUGGESTIONS_LOGGED_IN = [
   "I just applied to Stripe for senior backend, remote, 180-220k",
   "What's my pipeline look like?",
   "Change my Figma application to interviewing",
-  "Add an interview round for next Tuesday on the Stripe one",
 ]
 
 export default function HomePage() {
@@ -29,98 +29,94 @@ export default function HomePage() {
   const firstName = session?.user?.name?.split(" ")[0] || session?.user?.email?.split("@")[0]
 
   return (
-    <main className="relative min-h-[calc(100vh-3.5rem)] overflow-hidden">
-      {/* Radial glow background */}
+    <main className="relative min-h-[calc(100vh-6rem)] flex items-center justify-center px-6 pt-2 pb-12">
+      {/* Soft halo behind the entire hero — adds spatial cohesion */}
       <div
+        aria-hidden
         className="absolute inset-0 pointer-events-none"
         style={{
           background:
-            "radial-gradient(ellipse 60% 40% at 50% 30%, var(--accent-glow), transparent 70%)",
+            "radial-gradient(ellipse 55% 45% at 50% 35%, var(--accent-soft), transparent 70%)",
         }}
       />
 
-      <div className="relative max-w-4xl mx-auto px-6 pt-16 pb-24 text-center">
-        {/* Pill */}
-        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-[color:var(--border-strong)] bg-[color:var(--bg-elevated)] text-xs uppercase tracking-wider text-[color:var(--text-muted)] mb-8">
-          <span className="logo-dot" />
-          AI-powered job search
+      {/*
+        Hero composition. Everything stays in one tight column so the user
+        reads orb → words → action without their eye traveling far. Spacing
+        is intentionally tighter than before: orb has -mb pulling the headline
+        into its lower halo, then headline + subtitle + chat sit in compact
+        24-32px rhythm.
+      */}
+      <div className="relative w-full max-w-2xl text-center flex flex-col items-center">
+        {/* Orb — sized down (380px → 260px on desktop, 200px on mobile) and
+            given a negative bottom margin so its ambient glow visually bleeds
+            into the headline. They read as one composition. */}
+        <div className="w-[200px] md:w-[260px] -mb-4 md:-mb-6">
+          <AICore />
         </div>
 
-        {/* Hero */}
-        <h1 className="text-5xl md:text-7xl font-bold tracking-tight leading-[0.95] mb-2">
-          Track. Apply.
-        </h1>
-        <h1 className="text-5xl md:text-7xl font-bold tracking-tight leading-[0.95] mb-6">
-          <span className="bg-gradient-to-r from-[color:var(--accent)] to-[#9DB4FF] bg-clip-text text-transparent">
-            Land it.
-          </span>
+        {/* Headline — sits directly under the orb, gathered into its halo */}
+        <h1 className="font-display-hero text-5xl md:text-7xl leading-[0.95] hover-glow">
+          <Reveal mode="word" eager className="block font-light text-[color:var(--text)]">
+            Track. Apply.
+          </Reveal>
+          <Reveal mode="word" delay={300} eager className="block font-bold mt-1">
+            <GradientText glow>Land it.</GradientText>
+          </Reveal>
         </h1>
 
-        <p className="text-lg text-[color:var(--text-muted)] max-w-2xl mx-auto mb-12">
+        {/* Subtitle — short, calm, one breath below the headline */}
+        <Reveal
+          mode="line"
+          delay={800}
+          eager
+          as="p"
+          className="mt-6 text-base md:text-lg text-[color:var(--text-muted)] max-w-md leading-relaxed"
+        >
           {isAuthed && firstName
-            ? `Welcome back, ${firstName}. Tell your agent what happened and it handles the rest — adding apps, writing cover letters, tracking interviews.`
-            : "Your AI agent that tracks every application, writes cover letters, and finds similar roles — just by chatting."}
-        </p>
+            ? `Welcome back, ${firstName}. Tell your agent what happened.`
+            : "An AI agent that runs your job search — just by chatting."}
+        </Reveal>
 
-        {/* Suggestion chips */}
-        <div className="flex flex-wrap justify-center gap-2 mb-6">
+        {/* Chat — the primary action, sits right under the message */}
+        <div className="mt-8 w-full text-left">
+          <ImmersiveChat initialInput={chipText} storageKey="jobagent.chat.page" />
+        </div>
+
+        {/* Suggestion chips — secondary, "or try these" */}
+        <div className="mt-5 flex flex-wrap justify-center gap-2">
           {suggestions.map((s) => (
             <button
               key={s}
               onClick={() => setChipText(s)}
-              className="chip"
+              className="chip text-xs"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-[color:var(--accent)]">
-                <path
-                  d="M12 2L13.5 8.5L20 10L13.5 11.5L12 18L10.5 11.5L4 10L10.5 8.5L12 2Z"
-                  fill="currentColor"
-                />
-              </svg>
               {s}
             </button>
           ))}
         </div>
 
-        {/* The real chat */}
-        <div className="max-w-2xl mx-auto text-left">
-          <Chat initialInput={chipText} variant="page" />
-        </div>
-
-        {isAuthed && (
-          <p className="mt-3 text-xs text-[color:var(--text-dim)]">
-            Or jump straight to the{" "}
-            <Link href="/dashboard" className="text-[color:var(--accent)] hover:underline">
-              dashboard
-            </Link>
-            .
-          </p>
-        )}
-
-        {/* Feature blurbs below the fold */}
-        <div className="grid md:grid-cols-3 gap-4 mt-24 text-left">
-          <FeatureCard
-            title="Add jobs by chatting"
-            body="Just say what you applied to. The agent fills in the details, asks for what's missing, and saves it."
-          />
-          <FeatureCard
-            title="AI cover letters & gap analysis"
-            body="Generate tailored cover letters and see what's missing on your resume — all from chat."
-          />
-          <FeatureCard
-            title="Find similar roles"
-            body="Semantic search across your saved applications. Ask 'find roles like Stripe' and get matches."
-          />
-        </div>
+        {/* Quiet footer link — tour or dashboard depending on auth state */}
+        <p className="mt-8 text-xs text-[color:var(--text-dim)]">
+          {isAuthed ? (
+            <>
+              Or jump to the{" "}
+              <Link href="/dashboard" className="text-[color:var(--accent)] hover:underline">
+                dashboard
+              </Link>
+              .
+            </>
+          ) : (
+            <>
+              See{" "}
+              <Link href="/inside" className="text-[color:var(--accent)] hover:underline">
+                inside JobAgent
+              </Link>
+              {" "}— how the agent actually works.
+            </>
+          )}
+        </p>
       </div>
     </main>
-  )
-}
-
-function FeatureCard({ title, body }: { title: string; body: string }) {
-  return (
-    <div className="card hover:border-[color:var(--accent)] transition-colors">
-      <h3 className="font-semibold mb-2">{title}</h3>
-      <p className="text-sm text-[color:var(--text-muted)] leading-relaxed">{body}</p>
-    </div>
   )
 }

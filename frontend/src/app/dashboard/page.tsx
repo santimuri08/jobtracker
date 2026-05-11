@@ -6,6 +6,7 @@ import { useEffect, useState, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { apiFetch } from "@/lib/api"
+import { Reveal, GradientText } from "@/components/Reveal"
 
 type Application = {
   id: number
@@ -34,12 +35,14 @@ type EmailPreference = {
 
 const STATUSES = ["", "saved", "applied", "interviewing", "offer", "rejected", "withdrawn"]
 
+// Desaturated status badges — they communicate state without competing with
+// the electric-blue brand identity.
 const STATUS_COLORS: Record<string, string> = {
   saved: "bg-[color:var(--bg-hover)] text-[color:var(--text-muted)]",
   applied: "bg-[color:var(--accent-soft)] text-[color:var(--accent)]",
-  interviewing: "bg-[#F5A52420] text-[color:var(--warning)]",
-  offer: "bg-[#3DD68C20] text-[color:var(--success)]",
-  rejected: "bg-[#F2495C20] text-[color:var(--danger)]",
+  interviewing: "bg-[rgba(226,178,122,0.10)] text-[color:var(--warning)]",
+  offer: "bg-[rgba(91,197,150,0.12)] text-[color:var(--success)]",
+  rejected: "bg-[rgba(224,133,137,0.10)] text-[color:var(--danger)]",
   withdrawn: "bg-[color:var(--bg-hover)] text-[color:var(--text-dim)]",
 }
 
@@ -82,55 +85,62 @@ export default function DashboardPage() {
   if (!session) return null
 
   return (
-    <main className="max-w-6xl mx-auto px-6 py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-        <p className="text-[color:var(--text-muted)] mt-1">Track every application in one place.</p>
+    <main className="max-w-6xl mx-auto px-6 py-12 md:py-16">
+      {/* Page header — generous spacing */}
+      <div className="mb-12">
+        <Reveal as="h1" eager className="font-display-hero block text-5xl md:text-6xl font-bold leading-[1.02] hover-glow">
+          <GradientText>Dashboard</GradientText>
+        </Reveal>
+        <Reveal as="p" delay={150} eager className="block text-[color:var(--text-muted)] mt-3 text-base md:text-lg">
+          Track every application in one place.
+        </Reveal>
       </div>
 
-      {/* WEEKLY EMAIL PREFERENCES */}
+      {/* Weekly email preferences card */}
       {session?.backendToken && (
-        <EmailPreferencesCard token={session.backendToken} />
+        <div className="mb-8">
+          <EmailPreferencesCard token={session.backendToken} />
+        </div>
       )}
 
-      {/* PIPELINE TILES */}
+      {/* Pipeline tiles — breathing room */}
       {summary && (
-        <div className="grid grid-cols-2 md:grid-cols-7 gap-3 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-7 gap-4 mb-10">
           {(["saved", "applied", "interviewing", "offer", "rejected", "withdrawn"] as const).map((k) => (
             <div
               key={k}
               className="card text-center hover:border-[color:var(--accent)] transition-colors cursor-default"
             >
               <div className="text-xs uppercase tracking-wider text-[color:var(--text-dim)]">{k}</div>
-              <div className="text-2xl font-bold mt-1">{summary[k]}</div>
+              <div className="text-3xl font-bold mt-2 font-display">{summary[k]}</div>
             </div>
           ))}
           <div className="card text-center bg-[color:var(--accent-soft)] border-[color:var(--accent)]">
             <div className="text-xs uppercase tracking-wider text-[color:var(--accent)]">total</div>
-            <div className="text-2xl font-bold mt-1">{summary.total}</div>
+            <div className="text-3xl font-bold mt-2 font-display">{summary.total}</div>
           </div>
         </div>
       )}
 
-      {/* FILTERS */}
-      <div className="flex gap-2 mb-6 flex-wrap">
+      {/* Filters */}
+      <div className="flex gap-3 mb-8 flex-wrap">
         <input
           placeholder="Search company..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="px-3 py-2 flex-1 min-w-[200px] text-sm"
+          className="flex-1 min-w-[220px] text-sm"
         />
         <select
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value)}
-          className="px-3 py-2 text-sm"
+          className="text-sm"
         >
           {STATUSES.map((s) => <option key={s} value={s}>{s || "all statuses"}</option>)}
         </select>
         <select
           value={sort}
           onChange={(e) => setSort(e.target.value)}
-          className="px-3 py-2 text-sm"
+          className="text-sm"
         >
           <option value="created_at_desc">Newest first</option>
           <option value="created_at_asc">Oldest first</option>
@@ -143,16 +153,16 @@ export default function DashboardPage() {
 
       {error && <p className="text-[color:var(--danger)] text-sm mb-4">{error}</p>}
 
-      {/* TABLE */}
+      {/* Table */}
       <div className="card p-0 overflow-hidden">
         <table className="w-full">
           <thead>
             <tr className="border-b border-[color:var(--border)] text-left text-xs uppercase tracking-wider text-[color:var(--text-dim)]">
-              <th className="px-4 py-3 font-medium">Company</th>
-              <th className="px-4 py-3 font-medium">Role</th>
-              <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 font-medium">Location</th>
-              <th className="px-4 py-3 font-medium">Applied</th>
+              <th className="px-6 py-4 font-medium">Company</th>
+              <th className="px-6 py-4 font-medium">Role</th>
+              <th className="px-6 py-4 font-medium">Status</th>
+              <th className="px-6 py-4 font-medium">Location</th>
+              <th className="px-6 py-4 font-medium">Applied</th>
             </tr>
           </thead>
           <tbody>
@@ -161,7 +171,7 @@ export default function DashboardPage() {
                 key={a.id}
                 className="border-b border-[color:var(--border)] last:border-b-0 hover:bg-[color:var(--bg-hover)] transition-colors"
               >
-                <td className="px-4 py-3">
+                <td className="px-6 py-4">
                   <Link
                     href={`/applications/${a.id}`}
                     className="text-[color:var(--text)] hover:text-[color:var(--accent)] font-medium"
@@ -169,22 +179,25 @@ export default function DashboardPage() {
                     {a.company}
                   </Link>
                 </td>
-                <td className="px-4 py-3 text-[color:var(--text-muted)]">{a.role}</td>
-                <td className="px-4 py-3">
-                  <span className={`text-xs px-2 py-1 rounded-md font-medium ${STATUS_COLORS[a.status] || ""}`}>
+                <td className="px-6 py-4 text-[color:var(--text-muted)]">{a.role}</td>
+                <td className="px-6 py-4">
+                  <span
+                    className={`text-xs px-3 py-1.5 font-medium ${STATUS_COLORS[a.status] || ""}`}
+                    style={{ borderRadius: "var(--radius-xs)" }}
+                  >
                     {a.status}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-[color:var(--text-muted)]">{a.location || "—"}</td>
-                <td className="px-4 py-3 text-[color:var(--text-muted)]">{a.applied_date || "—"}</td>
+                <td className="px-6 py-4 text-[color:var(--text-muted)]">{a.location || "—"}</td>
+                <td className="px-6 py-4 text-[color:var(--text-muted)]">{a.applied_date || "—"}</td>
               </tr>
             ))}
           </tbody>
         </table>
 
         {apps.length === 0 && (
-          <div className="text-center py-12 px-4">
-            <p className="text-[color:var(--text-muted)] mb-4">No applications yet.</p>
+          <div className="text-center py-16 px-4">
+            <p className="text-[color:var(--text-muted)] mb-6">No applications yet.</p>
             <Link href="/applications/new" className="btn-primary text-sm inline-block">
               Add your first application
             </Link>
@@ -195,8 +208,6 @@ export default function DashboardPage() {
   )
 }
 
-
-// --- Phase 7: weekly email preferences card ---
 
 function EmailPreferencesCard({ token }: { token: string }) {
   const [pref, setPref] = useState<EmailPreference | null>(null)
@@ -254,14 +265,14 @@ function EmailPreferencesCard({ token }: { token: string }) {
   }
 
   return (
-    <section className="card mb-6">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+    <section className="card">
+      <div className="flex items-start justify-between gap-6 flex-wrap">
         <div className="flex-1 min-w-[280px]">
-          <h2 className="text-base font-semibold flex items-center gap-2">
+          <h2 className="text-base font-semibold flex items-center gap-2 font-display">
             <span className="logo-dot" />
             Weekly summary email
           </h2>
-          <p className="text-sm text-[color:var(--text-muted)] mt-1">
+          <p className="text-sm text-[color:var(--text-muted)] mt-2">
             {pref?.frequency === "weekly"
               ? "On — you'll get a recap every Monday."
               : "Off — you won't get scheduled emails."}
@@ -269,10 +280,10 @@ function EmailPreferencesCard({ token }: { token: string }) {
               <> Last sent {new Date(pref.last_sent_at).toLocaleString()}.</>
             )}
           </p>
-          {msg && <p className="text-sm text-[color:var(--success)] mt-2">{msg}</p>}
-          {err && <p className="text-sm text-[color:var(--danger)] mt-2">{err}</p>}
+          {msg && <p className="text-sm text-[color:var(--success)] mt-3">{msg}</p>}
+          {err && <p className="text-sm text-[color:var(--danger)] mt-3">{err}</p>}
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-3">
           <button
             onClick={sendTest}
             disabled={loading}
