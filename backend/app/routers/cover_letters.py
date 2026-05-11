@@ -1,5 +1,5 @@
 # backend/app/routers/cover_letters.py
-from typing import List
+from typing import List, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -29,6 +29,96 @@ def _get_app_or_404(db: Session, app_id: int, user_id: str) -> Application:
     if not app_obj:
         raise HTTPException(status_code=404, detail="Application not found")
     return app_obj
+
+
+def _check_application_ready(
+    db: Session, app_obj: Application, *, feature: str
+) -> Tuple[Application, ResumeParse]:
+    """
+    Validate that an application has everything required for an AI feature
+    that needs the job description + a parsed resume.
+
+    Returns (app, parse) on success.
+    Raises HTTPException(400, detail={...}) with a structured body listing
+    every missing requirement, so the frontend and chat agent can render
+    actionable next steps instead of a flat error string.
+    """
+    missing: list[str] = []
+
+    if not app_obj.job_description or not app_obj.job_description.strip():
+        missing.append("job_description")
+
+    parse: ResumeParse | None = None
+    if not app_obj.resume_id:
+        missing.append("linked_resume")
+        # Without a resume_id we can't even look up a parse, so mark both.
+        missing.append("parsed_resume")
+    else:
+        parse = (
+            db.query(ResumeParse)
+            .filter(ResumeParse.resume_id == app_obj.resume_id)
+            .first()
+        )
+        if not parse:
+            missing.append("parsed_resume")
+
+    if not missing:
+        # mypy/runtime: parse is guaranteed non-None when no requirements are missing.
+        assert parse is not None
+        return app_obj, parse
+
+    # Build the human-readable message
+    label_map = {
+        "job_description": "a job description",
+        "linked_resume": "a linked resume",
+        "parsed_resume": "a parsed resume",
+    }
+    pretty = [label_map[m] for m in missing if m in label_map]
+    if len(pretty) == 1:
+        joined = pretty[0]
+    elif len(pretty) == 2:
+        joined = f"{pretty[0]} and {pretty[1]}"
+    else:
+        joined = ", ".join(pretty[:-1]) + f", and {pretty[-1]}"
+
+    message = (
+        f"This application needs {joined} before you can "
+        f"{'generate a cover letter' if feature == 'cover_letter' else 'run gap analysis'}."
+    )
+
+    # Build suggested follow-up actions for the UI / agent
+    actions = []
+    if "job_description" in missing:
+        actions.append({
+            "label": "Add job description",
+            "kind": "add_job_description",
+            "application_id": app_obj.id,
+        })
+    if "linked_resume" in missing:
+        actions.append({
+            "label": "Link a resume",
+            "kind": "link_resume",
+            "application_id": app_obj.id,
+        })
+    if "parsed_resume" in missing and "linked_resume" not in missing:
+        # Resume IS linked but unparsed — offer a parse retry, not link
+        actions.append({
+            "label": "Parse the linked resume",
+            "kind": "parse_resume",
+            "application_id": app_obj.id,
+            "resume_id": app_obj.resume_id,
+        })
+
+    raise HTTPException(
+        status_code=400,
+        detail={
+            "error": "missing_requirements",
+            "feature": feature,
+            "missing": missing,
+            "message": message,
+            "actions": actions,
+        },
+    )
 
 
 def _resume_parse_dict(parse: ResumeParse) -> dict:
@@ -70,29 +160,7 @@ def generate_cover_letter(
     user: CurrentUser = Depends(get_current_user),
 ):
     app_obj = _get_app_or_404(db, application_id, user.id)
-
-    # Validate inputs
-    if not app_obj.job_description:
-        raise HTTPException(
-            status_code=400,
-            detail="Application has no job description. Add one before generating.",
-        )
-    if not app_obj.resume_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Application has no linked resume. Link one before generating.",
-        )
-
-    parse = (
-        db.query(ResumeParse)
-        .filter(ResumeParse.resume_id == app_obj.resume_id)
-        .first()
-    )
-    if not parse:
-        raise HTTPException(
-            status_code=400,
-            detail="Linked resume has not been parsed yet. Parse it first.",
-        )
+    app_obj, parse = _check_application_ready(db, app_obj, feature="cover_letter")
 
     # Call Claude
     try:
@@ -177,9 +245,7 @@ def update_cover_letter(
     )
     if not obj:
         raise HTTPException(status_code=404, detail="Cover letter not found")
-
     data = payload.model_dump(exclude_unset=True)
-
     # If they're setting this one active, clear is_active on others first
     if data.get("is_active") is True:
         (
@@ -190,10 +256,8 @@ def update_cover_letter(
             )
             .update({"is_active": False}, synchronize_session=False)
         )
-
     for k, v in data.items():
         setattr(obj, k, v)
-
     db.commit()
     db.refresh(obj)
     return obj

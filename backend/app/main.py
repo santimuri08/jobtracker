@@ -1,4 +1,6 @@
 # backend/app/main.py
+import logging
+import sys
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
@@ -15,10 +17,50 @@ from app.routers import (
     cover_letters,
     bullet_rewrites,
     email_preferences,
+    similar_applications,
+    reminders,
     agent,
 )
 from app.scheduler import start_scheduler, stop_scheduler
 
+
+# ---------- logging setup ----------
+#
+# By default the root logger has no handlers and is at WARNING level,
+# which means `logger.info(...)` and `logger.exception(...)` calls from
+# our routers and services go nowhere. Configure once at startup so
+# everything written through the standard `logging` API ends up in
+# `docker compose logs backend`.
+
+def _configure_logging() -> None:
+    root = logging.getLogger()
+    # Only configure once — avoid duplicate handlers if uvicorn reloads.
+    if any(getattr(h, "_jobagent_handler", False) for h in root.handlers):
+        return
+
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(logging.INFO)
+    handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s %(levelname)s %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
+    handler._jobagent_handler = True  # marker so we don't double-add
+    root.addHandler(handler)
+    root.setLevel(logging.INFO)
+
+    # Quiet down the noisiest third-party loggers
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("openai").setLevel(logging.WARNING)
+    logging.getLogger("anthropic").setLevel(logging.WARNING)
+
+
+_configure_logging()
+
+
+# ---------- app lifespan ----------
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -59,4 +101,6 @@ app.include_router(gap_analyses.router)
 app.include_router(cover_letters.router)
 app.include_router(bullet_rewrites.router)
 app.include_router(email_preferences.router)
+app.include_router(similar_applications.router)
+app.include_router(reminders.router)
 app.include_router(agent.router)

@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     jwt_expires_in: int = 86400
     anthropic_api_key: str = ""
 
+    # Phase 6: Voyage embeddings (powers /applications/{id}/similar)
+    voyage_api_key: str = ""
+
     # Phase 7: Resend + email config
     resend_api_key: str = ""
     resend_from_email: str = "onboarding@resend.dev"

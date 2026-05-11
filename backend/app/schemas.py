@@ -274,3 +274,31 @@ class TriggerWeeklySummaryOut(BaseModel):
     skipped_reason: Optional[str] = None
     email_to: Optional[str] = None
     summary_preview: Optional[str] = None    # first 200 chars, for sanity-check
+
+
+# ---------- REMINDERS (Phase 2.2) ----------
+class ReminderBase(BaseModel):
+    message: str
+    due_at: datetime
+    application_id: Optional[int] = None
+
+
+class ReminderCreate(ReminderBase):
+    pass
+
+
+class ReminderUpdate(BaseModel):
+    message: Optional[str] = None
+    due_at: Optional[datetime] = None
+    application_id: Optional[int] = None
+    completed: Optional[bool] = None  # set true to mark done, false to un-complete
+
+
+class ReminderOut(ORMModel):
+    id: int
+    user_id: str
+    application_id: Optional[int] = None
+    message: str
+    due_at: datetime
+    completed_at: Optional[datetime] = None
+    created_at: datetime

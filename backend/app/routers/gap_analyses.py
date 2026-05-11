@@ -1,4 +1,6 @@
 # backend/app/routers/gap_analyses.py
+from typing import Tuple
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -25,6 +27,91 @@ def _get_app_or_404(db: Session, app_id: int, user_id: str) -> Application:
     return app
 
 
+def _check_application_ready(
+    db: Session, app_obj: Application, *, feature: str
+) -> Tuple[Application, ResumeParse]:
+    """
+    Validate that an application has everything required for an AI feature
+    that needs the job description + a parsed resume.
+
+    Returns (app, parse) on success.
+    Raises HTTPException(400, detail={...}) with a structured body listing
+    every missing requirement, so the frontend and chat agent can render
+    actionable next steps instead of a flat error string.
+    """
+    missing: list[str] = []
+
+    if not app_obj.job_description or not app_obj.job_description.strip():
+        missing.append("job_description")
+
+    parse: ResumeParse | None = None
+    if not app_obj.resume_id:
+        missing.append("linked_resume")
+        missing.append("parsed_resume")
+    else:
+        parse = (
+            db.query(ResumeParse)
+            .filter(ResumeParse.resume_id == app_obj.resume_id)
+            .first()
+        )
+        if not parse:
+            missing.append("parsed_resume")
+
+    if not missing:
+        assert parse is not None
+        return app_obj, parse
+
+    label_map = {
+        "job_description": "a job description",
+        "linked_resume": "a linked resume",
+        "parsed_resume": "a parsed resume",
+    }
+    pretty = [label_map[m] for m in missing if m in label_map]
+    if len(pretty) == 1:
+        joined = pretty[0]
+    elif len(pretty) == 2:
+        joined = f"{pretty[0]} and {pretty[1]}"
+    else:
+        joined = ", ".join(pretty[:-1]) + f", and {pretty[-1]}"
+
+    message = (
+        f"This application needs {joined} before you can "
+        f"{'generate a cover letter' if feature == 'cover_letter' else 'run gap analysis'}."
+    )
+
+    actions = []
+    if "job_description" in missing:
+        actions.append({
+            "label": "Add job description",
+            "kind": "add_job_description",
+            "application_id": app_obj.id,
+        })
+    if "linked_resume" in missing:
+        actions.append({
+            "label": "Link a resume",
+            "kind": "link_resume",
+            "application_id": app_obj.id,
+        })
+    if "parsed_resume" in missing and "linked_resume" not in missing:
+        actions.append({
+            "label": "Parse the linked resume",
+            "kind": "parse_resume",
+            "application_id": app_obj.id,
+            "resume_id": app_obj.resume_id,
+        })
+
+    raise HTTPException(
+        status_code=400,
+        detail={
+            "error": "missing_requirements",
+            "feature": feature,
+            "missing": missing,
+            "message": message,
+            "actions": actions,
+        },
+    )
+
+
 @router.post("", response_model=GapAnalysisOut)
 def create_gap_analysis(
     application_id: int,
@@ -32,28 +119,7 @@ def create_gap_analysis(
     user: CurrentUser = Depends(get_current_user),
 ):
     app = _get_app_or_404(db, application_id, user.id)
-
-    if not app.job_description or not app.job_description.strip():
-        raise HTTPException(
-            status_code=400,
-            detail="Application has no job description to analyze",
-        )
-    if not app.resume_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Application has no resume linked. Link a resume first.",
-        )
-
-    parse = (
-        db.query(ResumeParse)
-        .filter(ResumeParse.resume_id == app.resume_id)
-        .first()
-    )
-    if not parse:
-        raise HTTPException(
-            status_code=400,
-            detail="Linked resume hasn't been parsed yet. Parse it first.",
-        )
+    app, parse = _check_application_ready(db, app, feature="gap_analysis")
 
     # Build the dict we send to Claude — only the user-visible parsed fields,
     # not raw_text or DB metadata
