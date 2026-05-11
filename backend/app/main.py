@@ -15,6 +15,7 @@ from app.routers import (
     cover_letters,
     bullet_rewrites,
     email_preferences,
+    agent,
 )
 from app.scheduler import start_scheduler, stop_scheduler
 
@@ -58,3 +59,4 @@ app.include_router(gap_analyses.router)
 app.include_router(cover_letters.router)
 app.include_router(bullet_rewrites.router)
 app.include_router(email_preferences.router)
+app.include_router(agent.router)
