@@ -1,12 +1,14 @@
 // frontend/src/app/page.tsx
 "use client"
 
-import { useState } from "react"
+import { useState, useRef, useEffect } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { useSession } from "next-auth/react"
-import { ImmersiveChat } from "@/components/ImmersiveChat"
+import { ArrowUp } from "lucide-react"
 import { Reveal, GradientText } from "@/components/Reveal"
 import { AICore } from "@/components/AICore"
+import { listChats } from "@/lib/chatStorage"
 
 const SUGGESTIONS_LOGGED_OUT = [
   "I applied to Stripe for senior backend",
@@ -15,48 +17,103 @@ const SUGGESTIONS_LOGGED_OUT = [
 ]
 
 const SUGGESTIONS_LOGGED_IN = [
-  "I just applied to Stripe for senior backend, remote, 180-220k",
+  "I just applied to Stripe for senior backend, remote, 180–220k",
   "What's my pipeline look like?",
   "Change my Figma application to interviewing",
 ]
 
+/**
+ * Landing page (/).
+ *
+ * The cinematic hero IS the entry point. The composer launches the
+ * conversational workspace by navigating to /chat with the prompt
+ * pre-filled. Empty submissions do nothing — we never open an empty
+ * workspace.
+ *
+ * If a signed-in user already has saved chats, we show a quiet
+ * "Continue your last chat" affordance below the chips. The workspace
+ * itself is not mounted here — that happens at /chat.
+ */
 export default function HomePage() {
+  const router = useRouter()
   const { data: session, status } = useSession()
-  const [chipText, setChipText] = useState<string | undefined>(undefined)
+  const [text, setText] = useState("")
+  const [hasHistory, setHasHistory] = useState(false)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
 
   const isAuthed = status === "authenticated"
   const suggestions = isAuthed ? SUGGESTIONS_LOGGED_IN : SUGGESTIONS_LOGGED_OUT
-  const firstName = session?.user?.name?.split(" ")[0] || session?.user?.email?.split("@")[0]
+  const firstName =
+    session?.user?.name?.split(" ")[0] ||
+    session?.user?.email?.split("@")[0]
+
+  // Auto-grow composer
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = "auto"
+    el.style.height = `${Math.min(el.scrollHeight, 180)}px`
+  }, [text])
+
+  // Detect prior conversations for the "Continue" affordance
+  useEffect(() => {
+    if (!isAuthed) return
+    setHasHistory(listChats().length > 0)
+  }, [isAuthed])
+
+  function launchChat(prefill?: string) {
+    const q = (prefill ?? text).trim()
+    if (!q) {
+      // Don't open an empty workspace — just focus the composer.
+      inputRef.current?.focus()
+      return
+    }
+    if (!isAuthed) {
+      router.push(`/signup?from=/chat&q=${encodeURIComponent(q)}`)
+      return
+    }
+    router.push(`/chat?q=${encodeURIComponent(q)}&new=1`)
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    launchChat()
+  }
+
+  function handleKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault()
+      launchChat()
+    }
+  }
 
   return (
-    <main className="relative min-h-[calc(100vh-6rem)] flex items-center justify-center px-6 pt-2 pb-12">
-      {/* Soft halo behind the entire hero — adds spatial cohesion */}
+    <main
+      className="
+        relative flex items-center justify-center
+        px-5 sm:px-6
+        min-h-[calc(100dvh-6rem)]
+        pt-2 pb-12
+      "
+    >
+      {/* Soft halo behind hero */}
       <div
         aria-hidden
         className="absolute inset-0 pointer-events-none"
         style={{
           background:
-            "radial-gradient(ellipse 55% 45% at 50% 35%, var(--accent-soft), transparent 70%)",
+            "radial-gradient(ellipse 60% 50% at 50% 38%, var(--accent-soft), transparent 70%)",
         }}
       />
 
-      {/*
-        Hero composition. Everything stays in one tight column so the user
-        reads orb → words → action without their eye traveling far. Spacing
-        is intentionally tighter than before: orb has -mb pulling the headline
-        into its lower halo, then headline + subtitle + chat sit in compact
-        24-32px rhythm.
-      */}
-      <div className="relative w-full max-w-2xl text-center flex flex-col items-center">
-        {/* Orb — sized down (380px → 260px on desktop, 200px on mobile) and
-            given a negative bottom margin so its ambient glow visually bleeds
-            into the headline. They read as one composition. */}
-        <div className="w-[200px] md:w-[260px] -mb-4 md:-mb-6">
+      <div className="relative w-full max-w-xl text-center flex flex-col items-center">
+        {/* Orb — sized down so it doesn't compete with the composer */}
+        <div className="w-[160px] sm:w-[200px] md:w-[240px] -mb-3 md:-mb-5">
           <AICore />
         </div>
 
-        {/* Headline — sits directly under the orb, gathered into its halo */}
-        <h1 className="font-display-hero text-5xl md:text-7xl leading-[0.95] hover-glow">
+        {/* Headline */}
+        <h1 className="font-display-hero text-[2.25rem] sm:text-5xl md:text-6xl leading-[0.98] hover-glow">
           <Reveal mode="word" eager className="block font-light text-[color:var(--text)]">
             Track. Apply.
           </Reveal>
@@ -65,30 +122,57 @@ export default function HomePage() {
           </Reveal>
         </h1>
 
-        {/* Subtitle — short, calm, one breath below the headline */}
+        {/* Subtitle */}
         <Reveal
           mode="line"
           delay={800}
           eager
           as="p"
-          className="mt-6 text-base md:text-lg text-[color:var(--text-muted)] max-w-md leading-relaxed"
+          className="mt-5 text-sm md:text-base text-[color:var(--text-muted)] max-w-md leading-relaxed"
         >
           {isAuthed && firstName
             ? `Welcome back, ${firstName}. Tell your agent what happened.`
-            : "An AI agent that runs your job search — just by chatting."}
+            : "An AI-native operating system for your job search — just by chatting."}
         </Reveal>
 
-        {/* Chat — the primary action, sits right under the message */}
-        <div className="mt-8 w-full text-left">
-          <ImmersiveChat initialInput={chipText} storageKey="jobagent.chat.page" />
-        </div>
+        {/* Composer — the primary action */}
+        <form onSubmit={handleSubmit} className="mt-7 w-full text-left">
+          <div className="hero-composer">
+            <textarea
+              ref={inputRef}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={handleKey}
+              rows={1}
+              placeholder={
+                isAuthed
+                  ? "Tell me about a job, or ask me to draft something…"
+                  : "Try 'I applied to Stripe for senior backend'"
+              }
+              aria-label="Start a conversation with JobAgent"
+              spellCheck
+            />
+            <button
+              type="submit"
+              aria-label="Send"
+              disabled={!text.trim()}
+              className="hero-composer-send"
+            >
+              <ArrowUp size={18} strokeWidth={2.25} />
+            </button>
+          </div>
+          <div className="mt-2 px-1 text-[11px] text-[color:var(--text-dim)] text-center">
+            Press Enter to open the workspace.
+          </div>
+        </form>
 
-        {/* Suggestion chips — secondary, "or try these" */}
-        <div className="mt-5 flex flex-wrap justify-center gap-2">
+        {/* Suggestion chips */}
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
           {suggestions.map((s) => (
             <button
               key={s}
-              onClick={() => setChipText(s)}
+              type="button"
+              onClick={() => launchChat(s)}
               className="chip text-xs"
             >
               {s}
@@ -96,11 +180,22 @@ export default function HomePage() {
           ))}
         </div>
 
-        {/* Quiet footer link — tour or dashboard depending on auth state */}
-        <p className="mt-8 text-xs text-[color:var(--text-dim)]">
+        {/* Continue affordance — only if there's history */}
+        {isAuthed && hasHistory && (
+          <Link
+            href="/chat"
+            className="mt-6 text-xs text-[color:var(--text-muted)] hover:text-[color:var(--accent)] transition-colors inline-flex items-center gap-1.5"
+          >
+            <span className="logo-dot" style={{ width: 6, height: 6 }} />
+            Continue your last conversation
+          </Link>
+        )}
+
+        {/* Footer link */}
+        <p className="mt-6 text-xs text-[color:var(--text-dim)]">
           {isAuthed ? (
             <>
-              Or jump to the{" "}
+              Or jump to your{" "}
               <Link href="/dashboard" className="text-[color:var(--accent)] hover:underline">
                 dashboard
               </Link>
@@ -108,11 +203,11 @@ export default function HomePage() {
             </>
           ) : (
             <>
-              See{" "}
-              <Link href="/inside" className="text-[color:var(--accent)] hover:underline">
-                inside JobAgent
+              Already have an account?{" "}
+              <Link href="/login" className="text-[color:var(--accent)] hover:underline">
+                Log in
               </Link>
-              {" "}— how the agent actually works.
+              .
             </>
           )}
         </p>

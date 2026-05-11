@@ -5,17 +5,35 @@ import Link from "next/link"
 import { useSession, signOut } from "next-auth/react"
 import { useEffect, useState, useCallback } from "react"
 import { createPortal } from "react-dom"
-import { Menu, X, ArrowRight, MessageSquare, LayoutDashboard, Sparkles, LogIn, UserPlus, Home as HomeIcon } from "lucide-react"
+import {
+  Menu,
+  X,
+  ArrowRight,
+  MessageSquare,
+  LayoutDashboard,
+  Sparkles,
+  LogIn,
+  LogOut,
+  Home as HomeIcon,
+  Settings as SettingsIcon,
+} from "lucide-react"
 import { Wordmark } from "./Wordmark"
 
 /**
- * TopNav — minimal floating glass pill.
+ * TopNav — marketing-only floating glass pill.
  *
- * Authenticated:   [logo]                              [email] [sign out] [menu]
- * Unauthenticated: [logo]                                       [sign up] [menu]
+ *   AUTHENTICATED:
+ *     [• JobAgent]  …  [• email] [Sign out]  [☰]
  *
- * All section navigation (Chat, Dashboard, How JobAgent Works) lives in the
- * hamburger overlay menu. The bar itself stays lightweight and intentional.
+ *   ANONYMOUS:
+ *     [• JobAgent]  …  [Sign in]             [☰]
+ *
+ * The hamburger always opens a fullscreen menu with the page links
+ * (Chat / Dashboard / Settings / How JobAgent Works).
+ *
+ * Rendered ONLY on marketing routes (/, /inside, /how-it-works,
+ * /login, /signup). Workspace routes own their own chrome via
+ * WorkspaceShell — see ChromeShell.tsx for routing logic.
  */
 export function TopNav() {
   const { data: session, status } = useSession()
@@ -59,6 +77,9 @@ export function TopNav() {
 
   const closeMenu = useCallback(() => setMenuOpen(false), [])
 
+  const email = session?.user?.email ?? null
+  const emailInitial = email ? email[0]!.toUpperCase() : "?"
+
   return (
     <>
       {/* Spacer matching the floating nav's reserved height */}
@@ -69,19 +90,19 @@ export function TopNav() {
           fixed left-1/2 -translate-x-1/2 z-50
           transition-all duration-500
           ${scrolled
-            ? "top-3 w-[calc(100%-2rem)] max-w-3xl"
-            : "top-5 w-[calc(100%-2rem)] max-w-5xl"}
+            ? "top-3 w-[calc(100%-1.5rem)] max-w-3xl"
+            : "top-5 w-[calc(100%-1.5rem)] max-w-5xl"}
         `}
         style={{ transitionTimingFunction: "var(--ease)" }}
       >
         <div
           className={`
-            relative flex items-center justify-between
+            relative flex items-center justify-between gap-3
             border border-[color:var(--silver-rim)]
             transition-all duration-500
             ${scrolled
-              ? "px-5 py-2 bg-[color:var(--bg)]/65 backdrop-blur-2xl"
-              : "px-7 py-3 bg-[color:var(--bg)]/40 backdrop-blur-xl"}
+              ? "px-3 md:px-4 py-2 bg-[color:var(--bg)]/65 backdrop-blur-2xl"
+              : "px-4 md:px-5 py-2.5 md:py-3 bg-[color:var(--bg)]/40 backdrop-blur-xl"}
           `}
           style={{
             borderRadius: "var(--radius-lg)",
@@ -103,36 +124,82 @@ export function TopNav() {
 
           <Wordmark />
 
-          {/* Right side — minimal: email + sign-out (auth) OR sign-up (anon) + menu */}
-          <div className="flex items-center gap-3">
+          {/* Right side */}
+          <div className="flex items-center gap-1.5 md:gap-2">
             {isAuthed ? (
               <>
-                <span className="hidden lg:inline text-xs text-[color:var(--text-dim)] max-w-[180px] truncate">
-                  {session.user?.email}
-                </span>
+                {/* Email pill (desktop only — mobile just shows avatar dot) */}
+                <div
+                  className="
+                    hidden md:inline-flex items-center gap-2 px-2.5 py-1.5
+                    border border-[color:var(--border-strong)]
+                  "
+                  style={{ borderRadius: "var(--radius-md)" }}
+                  title={email ?? undefined}
+                >
+                  <span
+                    className="inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-semibold"
+                    style={{
+                      background: "var(--accent-soft)",
+                      color: "var(--accent)",
+                      border: "1px solid var(--accent-rim)",
+                    }}
+                  >
+                    {emailInitial}
+                  </span>
+                  <span className="text-xs text-[color:var(--text-muted)] max-w-[180px] truncate">
+                    {email}
+                  </span>
+                </div>
+
+                {/* Sign out (desktop) */}
                 <button
+                  type="button"
                   onClick={() => signOut({ callbackUrl: "/" })}
-                  className="hidden md:inline-flex items-center px-4 py-2 text-sm text-[color:var(--text-muted)] hover:text-[color:var(--text)] border border-[color:var(--border-strong)] hover:border-[color:var(--accent)] transition-colors"
+                  className="
+                    hidden md:inline-flex items-center gap-1.5 px-3 py-1.5
+                    text-xs font-medium
+                    text-[color:var(--text-muted)]
+                    border border-[color:var(--border-strong)]
+                    hover:text-[color:var(--text)] hover:border-[color:var(--accent)]
+                    transition-colors
+                  "
                   style={{ borderRadius: "var(--radius-md)" }}
                 >
+                  <LogOut size={13} strokeWidth={1.75} />
                   Sign out
                 </button>
               </>
             ) : (
               <Link
-                href="/signup"
-                className="hidden md:inline-flex items-center px-5 py-2 text-sm font-medium bg-[color:var(--accent)] hover:bg-[color:var(--accent-hover)] text-white transition-colors"
+                href="/login"
+                className="
+                  hidden md:inline-flex items-center gap-2 px-4 md:px-5 py-2
+                  text-sm font-medium
+                  bg-[color:var(--accent)] hover:bg-[color:var(--accent-hover)]
+                  text-white transition-colors
+                "
                 style={{ borderRadius: "var(--radius-md)" }}
               >
-                Sign up
+                <LogIn size={14} strokeWidth={2} />
+                Sign in
               </Link>
             )}
 
+            {/* Hamburger — always present. Opens the fullscreen menu with
+                Chat / Dashboard / Settings / How JobAgent Works. */}
             <button
               onClick={() => setMenuOpen(true)}
               aria-label="Open menu"
               aria-expanded={menuOpen}
-              className="flex items-center justify-center w-10 h-10 text-[color:var(--text-muted)] hover:text-[color:var(--accent)] border border-[color:var(--border-strong)] hover:border-[color:var(--accent)] transition-all"
+              className="
+                flex items-center justify-center w-10 h-10
+                text-[color:var(--text-muted)]
+                hover:text-[color:var(--accent)]
+                border border-[color:var(--border-strong)]
+                hover:border-[color:var(--accent)]
+                transition-all
+              "
               style={{ borderRadius: "var(--radius-md)" }}
             >
               <Menu size={18} strokeWidth={1.75} />
@@ -146,7 +213,7 @@ export function TopNav() {
           open={menuOpen}
           onClose={closeMenu}
           isAuthed={isAuthed}
-          email={session?.user?.email ?? null}
+          email={email}
         />,
         document.body
       )}
@@ -155,7 +222,7 @@ export function TopNav() {
 }
 
 /* ============================================================
-   FullscreenMenu — primary navigation surface
+   FullscreenMenu — items shown when the hamburger is tapped
    ============================================================ */
 
 type MenuItem = {
@@ -176,55 +243,17 @@ function FullscreenMenu({
   isAuthed: boolean
   email: string | null
 }) {
-  // Three primary destinations for authed users.
-  // The brief specifies these three items exactly.
   const authedItems: MenuItem[] = [
-    {
-      href: "/",
-      label: "Chat",
-      description: "Talk to your AI job-search agent",
-      Icon: MessageSquare,
-    },
-    {
-      href: "/dashboard",
-      label: "Dashboard",
-      description: "Track applications and progress",
-      Icon: LayoutDashboard,
-    },
-    {
-      href: "/inside",
-      label: "How JobAgent Works",
-      description: "See how the AI system works",
-      Icon: Sparkles,
-    },
+    { href: "/chat",      label: "Chat",      description: "Your AI workspace",       Icon: MessageSquare },
+    { href: "/dashboard", label: "Dashboard", description: "Track applications",      Icon: LayoutDashboard },
+    { href: "/settings",  label: "Settings",  description: "Account and preferences", Icon: SettingsIcon },
+    { href: "/inside",    label: "How JobAgent Works", description: "See how the AI system works", Icon: Sparkles },
   ]
 
-  // For unauthed visitors, the menu doubles as the auth surface.
   const anonItems: MenuItem[] = [
-    {
-      href: "/",
-      label: "Home",
-      description: "Meet JobAgent",
-      Icon: HomeIcon,
-    },
-    {
-      href: "/inside",
-      label: "How JobAgent Works",
-      description: "See how the AI system works",
-      Icon: Sparkles,
-    },
-    {
-      href: "/login",
-      label: "Log in",
-      description: "Welcome back",
-      Icon: LogIn,
-    },
-    {
-      href: "/signup",
-      label: "Sign up",
-      description: "Start tracking — it's free",
-      Icon: UserPlus,
-    },
+    { href: "/",       label: "Home",                description: "Meet JobAgent",                Icon: HomeIcon },
+    { href: "/inside", label: "How JobAgent Works",  description: "See how the AI system works",  Icon: Sparkles },
+    { href: "/login",  label: "Sign in",             description: "Welcome back",                 Icon: LogIn },
   ]
 
   const items = isAuthed ? authedItems : anonItems
@@ -242,7 +271,6 @@ function FullscreenMenu({
       `}
       style={{ transitionTimingFunction: "var(--ease)" }}
     >
-      {/* Backdrop with heavy blur — slightly dimming/blurring the page */}
       <div
         onClick={onClose}
         className={`
@@ -252,7 +280,6 @@ function FullscreenMenu({
         `}
       />
 
-      {/* Ambient bloom — sets the lit-panel feel */}
       <div
         aria-hidden
         className={`
@@ -262,39 +289,10 @@ function FullscreenMenu({
         `}
         style={{
           background:
-            "radial-gradient(ellipse 50% 50% at 50% 40%, var(--accent-glow), transparent 70%)",
+            "radial-gradient(ellipse 60% 50% at 50% 30%, var(--accent-glow), transparent 60%)",
         }}
       />
 
-      {/* Top + bottom edge accent lines that slide in */}
-      <div
-        aria-hidden
-        className={`
-          absolute top-0 left-1/2 -translate-x-1/2 h-px transition-all duration-700
-          ${open ? "w-[80vw] opacity-100" : "w-0 opacity-0"}
-        `}
-        style={{
-          background:
-            "linear-gradient(90deg, transparent 0%, var(--accent) 50%, transparent 100%)",
-          transitionDelay: open ? "200ms" : "0ms",
-          transitionTimingFunction: "var(--ease)",
-        }}
-      />
-      <div
-        aria-hidden
-        className={`
-          absolute bottom-0 left-1/2 -translate-x-1/2 h-px transition-all duration-700
-          ${open ? "w-[80vw] opacity-100" : "w-0 opacity-0"}
-        `}
-        style={{
-          background:
-            "linear-gradient(90deg, transparent 0%, rgba(221,227,235,0.45) 50%, transparent 100%)",
-          transitionDelay: open ? "300ms" : "0ms",
-          transitionTimingFunction: "var(--ease)",
-        }}
-      />
-
-      {/* Content frame */}
       <div
         className={`
           relative h-full flex flex-col
@@ -303,8 +301,7 @@ function FullscreenMenu({
         `}
         style={{ transitionTimingFunction: "var(--ease)" }}
       >
-        {/* Top bar of the overlay — brand + close */}
-        <div className="flex-shrink-0 px-8 py-6 flex items-center justify-between">
+        <div className="flex-shrink-0 px-6 md:px-8 py-5 md:py-6 flex items-center justify-between">
           <Wordmark />
           <button
             onClick={onClose}
@@ -323,9 +320,8 @@ function FullscreenMenu({
           </button>
         </div>
 
-        {/* Menu items — staggered reveal */}
-        <div className="flex-1 flex items-center justify-center px-6 md:px-8">
-          <ul className="w-full max-w-3xl space-y-4">
+        <div className="flex-1 flex items-center justify-center px-5 md:px-8">
+          <ul className="w-full max-w-3xl space-y-3 md:space-y-4">
             {items.map((item, i) => (
               <li
                 key={item.href}
@@ -344,9 +340,8 @@ function FullscreenMenu({
           </ul>
         </div>
 
-        {/* Footer — identity + sign-out (authed) */}
         <div
-          className="flex-shrink-0 px-8 py-6 flex items-center justify-between gap-4 flex-wrap"
+          className="flex-shrink-0 px-6 md:px-8 py-5 md:py-6 flex items-center justify-between gap-4 flex-wrap"
           style={{
             transitionDelay: open ? `${300 + items.length * 80 + 100}ms` : "0ms",
             transitionTimingFunction: "var(--ease)",
@@ -356,18 +351,15 @@ function FullscreenMenu({
             transitionDuration: "700ms",
           }}
         >
-          <div className="text-xs text-[color:var(--text-dim)]">
-            {isAuthed && email ? (
-              <>Signed in as <span className="text-[color:var(--text-muted)]">{email}</span></>
-            ) : (
-              "JobAgent — your AI job-search agent"
-            )}
+          <div className="text-xs text-[color:var(--text-dim)] truncate min-w-0">
+            {isAuthed && email ? email : "Welcome to JobAgent"}
           </div>
           {isAuthed && (
             <button
-              onClick={() => { onClose(); signOut({ callbackUrl: "/" }) }}
-              className="text-xs text-[color:var(--text-muted)] hover:text-[color:var(--accent)] underline-offset-4 hover:underline transition-colors"
+              onClick={() => signOut({ callbackUrl: "/" })}
+              className="text-xs text-[color:var(--text-muted)] hover:text-[color:var(--text)] transition-colors inline-flex items-center gap-1.5 flex-shrink-0"
             >
+              <LogOut size={12} strokeWidth={1.75} />
               Sign out
             </button>
           )}
@@ -377,80 +369,61 @@ function FullscreenMenu({
   )
 }
 
-/* ============================================================
-   MenuLink — one card per menu item
-   • Lucide icon left, label + description center, ArrowRight right
-   • Hover: border accent, icon turns accent, accent-soft glow ring,
-     arrow nudges right, very faint surface lift
-   ============================================================ */
-
 function MenuLink({ item, onClick }: { item: MenuItem; onClick: () => void }) {
-  const Icon = item.Icon
+  const { Icon } = item
   return (
     <Link
       href={item.href}
       onClick={onClick}
       className="
-        group block px-6 py-5
-        border border-[color:var(--border)]
-        bg-[color:var(--bg-elevated)]/40 backdrop-blur-md
+        group flex items-center gap-4 md:gap-6 px-4 md:px-6 py-4 md:py-5
+        border border-transparent
         hover:border-[color:var(--accent)]
-        hover:bg-[color:var(--bg-elevated)]/70
+        hover:bg-[color:var(--bg-elevated)]/50
+        backdrop-blur-md
         transition-all duration-500
       "
-      style={{
-        borderRadius: "var(--radius-lg)",
-        transitionTimingFunction: "var(--ease)",
-      }}
+      style={{ borderRadius: "var(--radius-md)", transitionTimingFunction: "var(--ease)" }}
     >
-      <div className="flex items-center justify-between gap-5">
-        {/* Icon tile */}
-        <div
-          className="
-            flex-shrink-0 flex items-center justify-center w-12 h-12
-            border border-[color:var(--border)]
-            bg-[color:var(--bg-hover)]/60
-            text-[color:var(--text-muted)]
-            group-hover:text-[color:var(--accent)]
-            group-hover:border-[color:var(--accent)]
-            transition-all duration-500
-          "
-          style={{
-            borderRadius: "var(--radius-md)",
-            transitionTimingFunction: "var(--ease)",
-          }}
-        >
-          <Icon size={20} strokeWidth={1.5} />
-        </div>
+      <div
+        className="
+          flex-shrink-0 flex items-center justify-center w-10 h-10 md:w-12 md:h-12
+          border border-[color:var(--border-strong)]
+          text-[color:var(--text-muted)]
+          group-hover:text-[color:var(--accent)]
+          group-hover:border-[color:var(--accent)]
+          transition-all duration-500
+        "
+        style={{ borderRadius: "var(--radius-sm)" }}
+      >
+        <Icon size={18} strokeWidth={1.75} />
+      </div>
 
-        {/* Label + description */}
-        <div className="flex-1 min-w-0">
-          <div className="font-display text-xl md:text-2xl font-semibold tracking-tight text-[color:var(--text)] group-hover:text-[color:var(--accent)] transition-colors duration-500">
-            {item.label}
-          </div>
-          <div className="text-sm text-[color:var(--text-muted)] mt-1">
-            {item.description}
-          </div>
+      <div className="flex-1 min-w-0">
+        <div className="font-display text-lg md:text-2xl font-semibold tracking-tight text-[color:var(--text)] group-hover:text-[color:var(--accent)] transition-colors duration-500">
+          {item.label}
         </div>
+        <div className="text-xs md:text-sm text-[color:var(--text-muted)] mt-1">
+          {item.description}
+        </div>
+      </div>
 
-        {/* Trailing arrow */}
-        <div
-          className="
-            flex-shrink-0 flex items-center justify-center w-10 h-10
-            text-[color:var(--text-dim)]
-            group-hover:text-[color:var(--accent)]
-            border border-[color:var(--border-strong)]
-            group-hover:border-[color:var(--accent)]
-            transition-all duration-500
-            group-hover:translate-x-1
-          "
-          style={{
-            borderRadius: "var(--radius-sm)",
-            transitionTimingFunction: "var(--ease)",
-          }}
-        >
-          <ArrowRight size={14} strokeWidth={1.75} />
-        </div>
+      <div
+        className="
+          flex-shrink-0 flex items-center justify-center w-9 h-9 md:w-10 md:h-10
+          text-[color:var(--text-dim)]
+          group-hover:text-[color:var(--accent)]
+          border border-[color:var(--border-strong)]
+          group-hover:border-[color:var(--accent)]
+          transition-all duration-500
+          group-hover:translate-x-1
+        "
+        style={{
+          borderRadius: "var(--radius-sm)",
+          transitionTimingFunction: "var(--ease)",
+        }}
+      >
+        <ArrowRight size={14} strokeWidth={1.75} />
       </div>
     </Link>
   )

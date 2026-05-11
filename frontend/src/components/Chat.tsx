@@ -3,19 +3,32 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSession } from "next-auth/react"
-import Link from "next/link"
 import {
   sendToAgent,
   extractText,
   extractToolCalls,
   type ChatMessage,
-  type ContentBlock,
 } from "@/lib/agent"
+import {
+  saveChat,
+  getChat,
+  setCurrentChatId,
+  makeChatId,
+} from "@/lib/chatStorage"
+import { ChatInput } from "./ChatInput"
 
 type Props = {
+  /** Optional text to pre-fill (used by suggestion chips). */
   initialInput?: string
-  variant?: "page" | "panel"
-  storageKey?: string
+  /** Imperatively switch the active chat. null = new chat. */
+  activeChatId?: string | null
+  onActiveChatChange?: (id: string | null) => void
+  /**
+   * If true, the initialInput is sent automatically on mount.
+   * Used by /chat?q= to make the landing page → workspace transition
+   * feel like one continuous action.
+   */
+  autoSendOnMount?: boolean
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -30,57 +43,90 @@ const TOOL_LABELS: Record<string, string> = {
   rewrite_bullet: "Rewriting bullet",
 }
 
+/**
+ * The conversation surface.
+ *
+ * This component assumes its parent (WorkspaceShell) provides the
+ * sidebar + outer chrome. It paints:
+ *   • a scrollable message stream
+ *   • the persistent bottom input
+ *
+ * Empty state is intentionally NOT handled here — by the time this
+ * component mounts, /chat has already guaranteed there's either a
+ * saved chat to restore or a fresh prompt to send. If you somehow
+ * reach an empty state, you'll see a quiet placeholder and the input
+ * still works.
+ */
 export function Chat({
   initialInput,
-  variant = "page",
-  storageKey = "jobagent.chat.page",
+  activeChatId,
+  onActiveChatChange,
+  autoSendOnMount = false,
 }: Props) {
   const { data: session, status } = useSession()
   const isAuthed = status === "authenticated"
 
+  const [chatId, setChatId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [input, setInput] = useState(initialInput || "")
+  const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
   const [error, setError] = useState("")
   const [hydrated, setHydrated] = useState(false)
+  const autoSentRef = useRef(false)
+
   const scrollRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const bottomRef = useRef<HTMLDivElement>(null)
 
+  // ── Hydrate from activeChatId ────────────────────────────────────────
   useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem(storageKey)
-      if (raw) {
-        const parsed = JSON.parse(raw) as ChatMessage[]
-        if (Array.isArray(parsed)) setMessages(parsed)
-      }
-    } catch {}
-    setHydrated(true)
-  }, [storageKey])
-
-  useEffect(() => {
-    if (!hydrated) return
-    try {
-      sessionStorage.setItem(storageKey, JSON.stringify(messages))
-    } catch {}
-  }, [messages, hydrated, storageKey])
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    if (activeChatId === undefined) {
+      setHydrated(true)
+      return
     }
-  }, [messages, sending])
+    if (activeChatId === null) {
+      setChatId(null)
+      setMessages([])
+      autoSentRef.current = false
+      setHydrated(true)
+      return
+    }
+    const saved = getChat(activeChatId)
+    if (saved) {
+      setChatId(saved.id)
+      setMessages(saved.messages)
+      autoSentRef.current = true // existing chat — don't auto-send
+    } else {
+      setChatId(null)
+      setMessages([])
+    }
+    setHydrated(true)
+  }, [activeChatId])
 
+  // ── Pre-fill the input from initialInput ─────────────────────────────
   useEffect(() => {
     if (initialInput !== undefined) setInput(initialInput)
   }, [initialInput])
 
+  // ── Persist on every message change ──────────────────────────────────
   useEffect(() => {
-    const el = inputRef.current
-    if (!el) return
-    el.style.height = "auto"
-    el.style.height = `${Math.min(el.scrollHeight, 200)}px`
-  }, [input])
+    if (!hydrated) return
+    if (messages.length === 0) return
+    const id = chatId ?? makeChatId()
+    if (!chatId) {
+      setChatId(id)
+      setCurrentChatId(id)
+      onActiveChatChange?.(id)
+    }
+    saveChat(id, messages)
+    window.dispatchEvent(new Event("jobagent:chats-changed"))
+  }, [messages, chatId, hydrated, onActiveChatChange])
 
+  // ── Auto-scroll to bottom on new messages ────────────────────────────
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
+  }, [messages, sending])
+
+  // ── Send ─────────────────────────────────────────────────────────────
   const handleSend = useCallback(
     async (textOverride?: string) => {
       const text = (textOverride ?? input).trim()
@@ -105,13 +151,25 @@ export function Chat({
         setInput(text)
       } finally {
         setSending(false)
-        inputRef.current?.focus()
       }
     },
     [input, sending, isAuthed, session, messages],
   )
 
-  async function handleRetry() {
+  // ── Auto-send on mount when ?q= was passed ───────────────────────────
+  useEffect(() => {
+    if (!hydrated) return
+    if (!autoSendOnMount) return
+    if (autoSentRef.current) return
+    if (!isAuthed || !session?.backendToken) return
+    if (!initialInput || !initialInput.trim()) return
+    if (messages.length > 0) return
+    autoSentRef.current = true
+    // Fire and forget — handleSend reads from input state which we just set
+    handleSend(initialInput)
+  }, [hydrated, autoSendOnMount, isAuthed, session, initialInput, messages.length, handleSend])
+
+  const handleRetry = useCallback(async () => {
     if (!session?.backendToken) return
     setError("")
     setSending(true)
@@ -123,180 +181,88 @@ export function Chat({
     } finally {
       setSending(false)
     }
-  }
+  }, [messages, session])
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
-    }
-  }
-
-  function handleNewChat() {
-    setMessages([])
-    setInput("")
-    setError("")
-    try {
-      sessionStorage.removeItem(storageKey)
-    } catch {}
-    inputRef.current?.focus()
-  }
-
-  const isPanel = variant === "panel"
-  const hasMessages = messages.length > 0
-  const showEmptyState = !hasMessages && !sending
-
+  // ── Pair tool results back to their tool_use ids ─────────────────────
   const pairedToolResults = useMemo(() => {
     const map = new Map<string, unknown>()
-    for (let i = 0; i < messages.length; i++) {
-      const m = messages[i]
+    for (const m of messages) {
       if (m.role !== "user" || typeof m.content === "string") continue
       for (const block of m.content) {
         if (block.type === "tool_result") {
-          try {
-            map.set(block.tool_use_id, JSON.parse(block.content))
-          } catch {
-            map.set(block.tool_use_id, block.content)
-          }
+          try { map.set(block.tool_use_id, JSON.parse(block.content)) }
+          catch { map.set(block.tool_use_id, block.content) }
         }
       }
     }
     return map
   }, [messages])
 
-  return (
-    <div className={isPanel ? "flex flex-col h-full" : "flex flex-col"}>
-      {/* Header bar */}
-      {(hasMessages || isPanel) && (
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2 text-xs text-[color:var(--text-dim)] uppercase tracking-wider">
-            <span className="logo-dot" />
-            Chat with JobAgent
-          </div>
-          {hasMessages && (
-            <button
-              onClick={handleNewChat}
-              className="text-xs text-[color:var(--text-muted)] hover:text-[color:var(--accent)] transition-colors"
-            >
-              New chat
-            </button>
-          )}
-        </div>
-      )}
+  // Filter out user turns that consist ENTIRELY of tool_result blocks
+  const visibleMessages = useMemo(() => {
+    return messages.filter((m) => {
+      if (typeof m.content === "string") return true
+      if (m.role !== "user") return true
+      return m.content.some((b) => b.type !== "tool_result")
+    })
+  }, [messages])
 
-      {/* Message stream */}
-      {hasMessages && (
-        <div
-          ref={scrollRef}
-          className={`card overflow-y-auto space-y-4 mb-4 ${
-            isPanel ? "flex-1" : "max-h-[480px]"
-          }`}
-        >
-          {messages.map((m, i) => (
-            <MessageBubble
+  return (
+    <>
+      <div ref={scrollRef} className="chat-stream">
+        <div className="chat-stream-inner">
+          {visibleMessages.length === 0 && sending && (
+            <ThinkingRow />
+          )}
+
+          {visibleMessages.map((m, i) => (
+            <MessageRow
               key={i}
               message={m}
               toolResults={pairedToolResults}
             />
           ))}
-          {sending && <ThinkingIndicator />}
-        </div>
-      )}
 
-      {/* Empty state */}
-      {showEmptyState && !isPanel && (
-        <div className="card mb-4 px-6 py-10 text-center">
-          <div className="logo-dot mx-auto mb-3" />
-          <p className="text-sm text-[color:var(--text-muted)]">
-            Tell the agent about a job — applied, interviewing, anything.
-            <br />
-            It&apos;ll handle the tracking, drafting, and analysis.
-          </p>
-        </div>
-      )}
+          {sending && visibleMessages.length > 0 && <ThinkingRow />}
 
-      {error && (
-        <div
-          className="mb-4 text-sm text-[color:var(--danger)] px-4 py-3 flex items-center justify-between gap-3"
-          style={{
-            background: "rgba(224, 133, 137, 0.08)",
-            border: "1px solid rgba(224, 133, 137, 0.25)",
-            borderRadius: "var(--radius-md)",
-          }}
-        >
-          <span>{error}</span>
-          {hasMessages && messages[messages.length - 1]?.role === "user" && (
-            <button
-              onClick={handleRetry}
-              disabled={sending}
-              className="text-xs underline hover:text-[color:var(--text)] flex-shrink-0"
-            >
-              Retry
-            </button>
+          {error && (
+            <div className="chat-error">
+              <span>{error}</span>
+              {messages.length > 0 && messages[messages.length - 1]?.role === "user" && (
+                <button
+                  onClick={handleRetry}
+                  disabled={sending}
+                  className="text-xs underline hover:text-[color:var(--text)] flex-shrink-0"
+                >
+                  Retry
+                </button>
+              )}
+            </div>
           )}
+          <div ref={bottomRef} />
         </div>
-      )}
+      </div>
 
-      {!isAuthed && status !== "loading" && !hasMessages && (
-        <div className="mb-4 text-xs text-[color:var(--text-dim)]">
-          You&apos;ll need an account to chat with the agent.{" "}
-          <Link href="/signup" className="text-[color:var(--accent)] hover:underline">
-            Sign up
-          </Link>{" "}
-          — it&apos;s free.
+      <div className="chat-input-bar">
+        <div className="chat-input-wrap">
+          <ChatInput
+            value={input}
+            onChange={setInput}
+            onSend={() => handleSend()}
+            sending={sending}
+            placeholder="Message JobAgent…"
+          />
         </div>
-      )}
-
-      {/* Input — uses --radius-lg for the spacious chat input feel */}
-      <form
-        onSubmit={(e) => { e.preventDefault(); handleSend() }}
-        className="relative"
-      >
-        <textarea
-          ref={inputRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          rows={1}
-          placeholder={
-            isAuthed
-              ? "Tell me what just happened — e.g. 'I applied to Stripe for senior backend'"
-              : 'Try "I applied to Stripe for senior backend"'
-          }
-          disabled={sending}
-          className="w-full pl-6 pr-16 py-5 text-base resize-none disabled:opacity-60"
-          style={{
-            minHeight: "68px",
-            maxHeight: "200px",
-            borderRadius: "var(--radius-lg)",
-          }}
-        />
-        <button
-          type="submit"
-          disabled={!input.trim() || sending}
-          aria-label="Send"
-          className="absolute right-3 top-3 w-11 h-11 bg-[color:var(--accent)] hover:bg-[color:var(--accent-hover)] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
-          style={{ borderRadius: "var(--radius-sm)" }}
-        >
-          {sending ? (
-            <svg width="18" height="18" viewBox="0 0 24 24" className="animate-spin">
-              <circle cx="12" cy="12" r="9" stroke="white" strokeOpacity="0.3" strokeWidth="2.5" fill="none" />
-              <path d="M21 12a9 9 0 00-9-9" stroke="white" strokeWidth="2.5" strokeLinecap="round" fill="none" />
-            </svg>
-          ) : (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="22" y1="2" x2="11" y2="13" />
-              <polygon points="22 2 15 22 11 13 2 9 22 2" />
-            </svg>
-          )}
-        </button>
-      </form>
-    </div>
+      </div>
+    </>
   )
 }
 
+/* ============================================================
+   Rows
+   ============================================================ */
 
-function MessageBubble({
+function MessageRow({
   message,
   toolResults,
 }: {
@@ -307,201 +273,44 @@ function MessageBubble({
   const text = extractText(message.content)
   const toolCalls = isUser ? [] : extractToolCalls(message.content)
 
-  if (!isUser && toolCalls.length > 0) {
-    return (
-      <div className="flex justify-start">
-        <div className="max-w-[88%] space-y-2">
-          {toolCalls.map((t) => (
-            <div key={t.id}>
-              <ToolCallPill name={t.name} />
-              <ToolResultCard name={t.name} result={toolResults.get(t.id)} />
-            </div>
-          ))}
-          {text && (
-            <div
-              className="bg-[color:var(--bg-hover)] text-[color:var(--text)] px-5 py-3 text-sm leading-relaxed"
-              style={{ borderRadius: "var(--radius-md)", borderBottomLeftRadius: "8px" }}
-            >
-              <AgentLabel />
-              <div className="whitespace-pre-wrap">{text}</div>
-            </div>
-          )}
-        </div>
-      </div>
-    )
-  }
-
-  if (!text) return null
-
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <div
-        className={`max-w-[85%] px-5 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
-          isUser
-            ? "bg-[color:var(--accent)] text-white"
-            : "bg-[color:var(--bg-hover)] text-[color:var(--text)]"
-        }`}
-        style={{
-          borderRadius: "var(--radius-md)",
-          ...(isUser
-            ? { borderBottomRightRadius: "8px" }
-            : { borderBottomLeftRadius: "8px" }),
-        }}
-      >
-        {!isUser && <AgentLabel />}
-        {text}
+    <div className={`msg ${isUser ? "msg-user" : "msg-assistant"}`}>
+      <div className="msg-avatar">
+        {isUser ? "You" : <span className="logo-dot" />}
       </div>
-    </div>
-  )
-}
+      <div className="msg-body">
+        <div className="msg-name">{isUser ? "You" : "JobAgent"}</div>
+        {text && <div className="msg-text">{text}</div>}
 
-
-function AgentLabel() {
-  return (
-    <div className="flex items-center gap-1.5 mb-1 text-xs text-[color:var(--accent)] font-semibold">
-      <span className="logo-dot" />
-      JobAgent
-    </div>
-  )
-}
-
-
-function ToolCallPill({ name }: { name: string }) {
-  const label = TOOL_LABELS[name] || name
-  return (
-    <div className="inline-flex items-center gap-2 px-4 py-2 border border-[color:var(--border)] bg-[color:var(--bg-elevated)] text-xs text-[color:var(--text-muted)] chip">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-[color:var(--accent)]">
-        <polyline points="20 6 9 17 4 12" />
-      </svg>
-      {label}
-    </div>
-  )
-}
-
-
-function ToolResultCard({ name, result }: { name: string; result: unknown }) {
-  if (!result || typeof result !== "object") return null
-  const r = result as Record<string, unknown>
-
-  if (name === "pipeline_summary") {
-    const statuses = ["saved", "applied", "interviewing", "offer", "rejected", "withdrawn"] as const
-    return (
-      <div className="mt-3 card">
-        <div className="grid grid-cols-3 md:grid-cols-7 gap-2 text-center">
-          {statuses.map((s) => (
-            <div
-              key={s}
-              className="border border-[color:var(--border)] px-2 py-2"
-              style={{ borderRadius: "var(--radius-sm)" }}
-            >
-              <div className="text-[10px] uppercase tracking-wider text-[color:var(--text-dim)]">{s}</div>
-              <div className="text-base font-bold font-display">{(r[s] as number) ?? 0}</div>
-            </div>
-          ))}
-          <div
-            className="border border-[color:var(--accent)] bg-[color:var(--accent-soft)] px-2 py-2"
-            style={{ borderRadius: "var(--radius-sm)" }}
-          >
-            <div className="text-[10px] uppercase tracking-wider text-[color:var(--accent)]">total</div>
-            <div className="text-base font-bold font-display">{(r.total as number) ?? 0}</div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (name === "list_applications") {
-    const apps = (r.applications as Array<Record<string, unknown>>) || []
-    if (apps.length === 0) return null
-    return (
-      <div className="mt-3 card space-y-2">
-        {apps.slice(0, 8).map((a) => (
-          <div key={String(a.id)} className="flex items-center justify-between gap-3 text-sm">
-            <span className="font-medium truncate">{String(a.company)}</span>
-            <span className="text-[color:var(--text-muted)] truncate flex-1 text-right">
-              {String(a.role)}
-            </span>
-            <span
-              className="text-xs px-2.5 py-1 bg-[color:var(--bg-hover)] text-[color:var(--text-muted)]"
-              style={{ borderRadius: "var(--radius-xs)" }}
-            >
-              {String(a.status)}
-            </span>
-          </div>
-        ))}
-        {apps.length > 8 && (
-          <div className="text-xs text-[color:var(--text-dim)] pt-1">
-            …and {apps.length - 8} more.
+        {toolCalls.length > 0 && (
+          <div className="msg-tools">
+            {toolCalls.map((tc) => {
+              const result = toolResults.get(tc.id)
+              return (
+                <div key={tc.id} className="msg-tool">
+                  <ToolCallPill name={tc.name} />
+                  {result !== undefined && (
+                    <ToolResultCard name={tc.name} result={result} />
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
-    )
-  }
-
-  if (name === "add_application" && r.ok === true) {
-    const a = r.application as Record<string, unknown>
-    return (
-      <div className="mt-3 card border-[color:var(--accent)] text-sm">
-        <div className="flex items-center justify-between gap-3">
-          <span className="font-medium">{String(a.company)}</span>
-          <span
-            className="text-xs px-2.5 py-1 bg-[color:var(--accent-soft)] text-[color:var(--accent)]"
-            style={{ borderRadius: "var(--radius-xs)" }}
-          >
-            {String(a.status)}
-          </span>
-        </div>
-        <div className="text-[color:var(--text-muted)] mt-1">{String(a.role)}</div>
-      </div>
-    )
-  }
-
-  if (name === "update_application" && r.ok === true) {
-    const a = r.application as Record<string, unknown>
-    return (
-      <div className="mt-3 card text-sm">
-        <div className="flex items-center justify-between gap-3">
-          <span className="font-medium">{String(a.company)}</span>
-          <span
-            className="text-xs px-2.5 py-1 bg-[color:var(--accent-soft)] text-[color:var(--accent)]"
-            style={{ borderRadius: "var(--radius-xs)" }}
-          >
-            {String(a.status)}
-          </span>
-        </div>
-        <div className="text-[color:var(--text-muted)] mt-1">Updated.</div>
-      </div>
-    )
-  }
-
-  if (name === "delete_application" && r.ok === true) {
-    return (
-      <div className="mt-2 text-xs text-[color:var(--text-muted)]">
-        Deleted <strong>{String(r.deleted_company)}</strong>.
-      </div>
-    )
-  }
-
-  if (r.ok === false || r.error) {
-    return (
-      <div className="mt-2 text-xs text-[color:var(--danger)]">
-        {String(r.error || "Something went wrong.")}
-      </div>
-    )
-  }
-
-  return null
+    </div>
+  )
 }
 
-
-function ThinkingIndicator() {
+function ThinkingRow() {
   return (
-    <div className="flex justify-start">
-      <div
-        className="bg-[color:var(--bg-hover)] px-5 py-3"
-        style={{ borderRadius: "var(--radius-md)", borderBottomLeftRadius: "8px" }}
-      >
-        <div className="flex items-center gap-1.5">
+    <div className="msg msg-assistant">
+      <div className="msg-avatar">
+        <span className="logo-dot" />
+      </div>
+      <div className="msg-body">
+        <div className="msg-name">JobAgent</div>
+        <div className="msg-dots">
           <Dot delay={0} />
           <Dot delay={150} />
           <Dot delay={300} />
@@ -511,12 +320,97 @@ function ThinkingIndicator() {
   )
 }
 
-
 function Dot({ delay }: { delay: number }) {
   return (
     <span
-      className="w-1.5 h-1.5 rounded-full bg-[color:var(--accent)] animate-pulse"
-      style={{ animationDelay: `${delay}ms`, animationDuration: "1s" }}
+      className="msg-dot"
+      style={{ animationDelay: `${delay}ms` }}
     />
   )
+}
+
+function ToolCallPill({ name }: { name: string }) {
+  const label = TOOL_LABELS[name] || name
+  return (
+    <div className="tool-pill">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-[color:var(--accent)]">
+        <polyline points="20 6 9 17 4 12" />
+      </svg>
+      {label}
+    </div>
+  )
+}
+
+function ToolResultCard({ name, result }: { name: string; result: unknown }) {
+  if (!result || typeof result !== "object") return null
+  const r = result as Record<string, unknown>
+
+  if (name === "pipeline_summary") {
+    const statuses = ["saved", "applied", "interviewing", "offer", "rejected", "withdrawn"] as const
+    return (
+      <div className="tool-card">
+        <div className="grid grid-cols-3 md:grid-cols-7 gap-2 text-center">
+          {statuses.map((s) => (
+            <div key={s} className="tool-stat">
+              <div className="tool-stat-label">{s}</div>
+              <div className="tool-stat-value">{(r[s] as number) ?? 0}</div>
+            </div>
+          ))}
+          <div className="tool-stat tool-stat-accent">
+            <div className="tool-stat-label">total</div>
+            <div className="tool-stat-value">{(r.total as number) ?? 0}</div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (name === "list_applications" && Array.isArray(r.applications)) {
+    const apps = r.applications as Array<Record<string, unknown>>
+    if (apps.length === 0) return null
+    return (
+      <div className="tool-card tool-list">
+        {apps.slice(0, 8).map((a, i) => (
+          <div key={i} className="tool-list-row">
+            <div className="min-w-0">
+              <div className="text-sm font-medium truncate">{String(a.company)}</div>
+              <div className="text-xs text-[color:var(--text-muted)] truncate">{String(a.role)}</div>
+            </div>
+            <span className="tool-status-pill">{String(a.status)}</span>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  if ((name === "add_application" || name === "update_application") && r.ok === true) {
+    const a = r.application as Record<string, unknown>
+    return (
+      <div className="tool-card">
+        <div className="flex items-center justify-between gap-3">
+          <span className="font-medium text-sm">{String(a.company)}</span>
+          <span className="tool-status-pill">{String(a.status)}</span>
+        </div>
+        <div className="text-xs text-[color:var(--text-muted)] mt-1">{String(a.role)}</div>
+      </div>
+    )
+  }
+
+  if (name === "delete_application" && r.ok === true) {
+    return (
+      <div className="text-xs text-[color:var(--text-muted)]">
+        Deleted <strong className="text-[color:var(--text)]">{String(r.deleted_company)}</strong>.
+      </div>
+    )
+  }
+
+  if (r.ok === false || r.error) {
+    return (
+      <div className="text-xs text-[color:var(--danger)]">
+        {String(r.error || "Something went wrong.")}
+      </div>
+    )
+  }
+
+  return null
 }

@@ -3,8 +3,7 @@ import type { Metadata } from "next"
 import { Geist, Inter } from "next/font/google"
 import "./globals.css"
 import AuthSessionProvider from "@/components/SessionProvider"
-import { TopNav } from "@/components/TopNav"
-import { AmbientBackground } from "@/components/AmbientBackground"
+import { ChromeShell } from "@/components/ChromeShell"
 
 const geist = Geist({
   subsets: ["latin"],
@@ -20,7 +19,10 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "JobAgent — Your AI job-search agent",
-  description: "Track applications, write cover letters, and land your next role — just by chatting.",
+  description:
+    "An AI-native operating system for job search management. Track, draft, and land — by chatting.",
+  viewport:
+    "width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=5",
 }
 
 export default function RootLayout({
@@ -29,20 +31,18 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" suppressHydrationWarning className={`${geist.variable} ${inter.variable}`}>
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${geist.variable} ${inter.variable}`}
+    >
       <body suppressHydrationWarning>
         <AuthSessionProvider>
-          {/* Site-wide cinematic background. Fixed, behind everything, never
-              intercepts pointer events. Mounted once here so every page picks
-              it up automatically without per-page changes. */}
-          <AmbientBackground />
-
-          {/* App content sits in its own stacking context above the background.
-              `relative` + `z-10` is enough to keep TopNav and pages on top. */}
-          <div className="relative z-10">
-            <TopNav />
-            {children}
-          </div>
+          {/* ChromeShell decides whether to show the marketing TopNav +
+              AmbientBackground based on the current route. The workspace
+              routes (/chat, /settings, /applications/*, /resumes/*) own
+              their own chrome and skip this. */}
+          <ChromeShell>{children}</ChromeShell>
         </AuthSessionProvider>
       </body>
     </html>
