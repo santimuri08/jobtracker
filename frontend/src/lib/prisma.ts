@@ -1,5 +1,5 @@
 // frontend/src/lib/prisma.ts
-import { PrismaClient } from "@prisma/client"
+import { PrismaClient } from "../generated/prisma/client"
 import { PrismaPg } from "@prisma/adapter-pg"
 
 const globalForPrisma = globalThis as unknown as {
@@ -14,5 +14,4 @@ function makeClient() {
 }
 
 export const prisma = globalForPrisma.prisma ?? makeClient()
-
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma
