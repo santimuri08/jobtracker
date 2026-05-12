@@ -2,12 +2,15 @@
 from datetime import datetime
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, ForeignKey, Enum, JSON,
-    Numeric, Date, Boolean, func
+    Numeric, Date, Boolean, UniqueConstraint, func
 )
 from sqlalchemy.orm import relationship
+from sqlalchemy.dialects.postgresql import JSONB
 from pgvector.sqlalchemy import Vector
 import enum
 from app.database import Base
+
+
 # --- Enums ---
 class ApplicationStatus(str, enum.Enum):
     saved = "saved"
@@ -16,6 +19,8 @@ class ApplicationStatus(str, enum.Enum):
     offer = "offer"
     rejected = "rejected"
     withdrawn = "withdrawn"
+
+
 class InterviewType(str, enum.Enum):
     phone_screen = "phone_screen"
     technical = "technical"
@@ -23,11 +28,15 @@ class InterviewType(str, enum.Enum):
     onsite = "onsite"
     final = "final"
     other = "other"
+
+
 class InterviewOutcome(str, enum.Enum):
     pending = "pending"
     passed = "passed"
     failed = "failed"
     cancelled = "cancelled"
+
+
 # --- User (read-only mirror of Prisma's table) ---
 class User(Base):
     __tablename__ = "users"
@@ -39,10 +48,14 @@ class User(Base):
     email_verified = Column("emailVerified", DateTime(timezone=True), nullable=True)
     created_at = Column("createdAt", DateTime(timezone=True), server_default=func.now())
     updated_at = Column("updatedAt", DateTime(timezone=True), server_default=func.now())
+
     applications = relationship("Application", back_populates="user", cascade="all, delete-orphan")
     resumes = relationship("Resume", back_populates="user", cascade="all, delete-orphan")
     email_preference = relationship("EmailPreference", back_populates="user", uselist=False, cascade="all, delete-orphan")
     reminders = relationship("Reminder", back_populates="user", cascade="all, delete-orphan")
+    chats = relationship("Chat", back_populates="user", cascade="all, delete-orphan")
+
+
 # --- Application ---
 class Application(Base):
     __tablename__ = "applications"
@@ -62,6 +75,7 @@ class Application(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     embedding = Column(Vector(1024), nullable=True)
+
     user = relationship("User", back_populates="applications")
     resume = relationship("Resume", back_populates="applications")
     interview_rounds = relationship("InterviewRound", back_populates="application", cascade="all, delete-orphan", order_by="InterviewRound.round_number")
@@ -85,6 +99,8 @@ class Application(Base):
         cascade="all, delete-orphan",
         order_by="Reminder.due_at.asc()",
     )
+
+
 # --- InterviewRound ---
 class InterviewRound(Base):
     __tablename__ = "interview_rounds"
@@ -98,7 +114,10 @@ class InterviewRound(Base):
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
     application = relationship("Application", back_populates="interview_rounds")
+
+
 # --- Contact ---
 class Contact(Base):
     __tablename__ = "contacts"
@@ -109,7 +128,10 @@ class Contact(Base):
     email = Column(String, nullable=True)
     phone = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
     application = relationship("Application", back_populates="contacts")
+
+
 # --- Note ---
 class Note(Base):
     __tablename__ = "notes"
@@ -117,7 +139,10 @@ class Note(Base):
     application_id = Column(Integer, ForeignKey("applications.id", ondelete="CASCADE"), nullable=False, index=True)
     content = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
     application = relationship("Application", back_populates="notes")
+
+
 # --- Resume ---
 class Resume(Base):
     __tablename__ = "resumes"
@@ -129,9 +154,12 @@ class Resume(Base):
     content_type = Column(String, nullable=False, default="application/pdf")
     size_bytes = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
     user = relationship("User", back_populates="resumes")
     applications = relationship("Application", back_populates="resume")
     parse = relationship("ResumeParse", back_populates="resume", uselist=False, cascade="all, delete-orphan")
+
+
 # --- ResumeParse (Phase 3) ---
 class ResumeParse(Base):
     __tablename__ = "resume_parses"
@@ -155,7 +183,10 @@ class ResumeParse(Base):
     parser_version = Column(String, nullable=False, default="claude-v1")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
     resume = relationship("Resume", back_populates="parse")
+
+
 # --- GapAnalysis (Phase 4) ---
 class GapAnalysis(Base):
     __tablename__ = "gap_analyses"
@@ -185,7 +216,10 @@ class GapAnalysis(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
     application = relationship("Application", back_populates="gap_analysis")
+
+
 # --- CoverLetter (Phase 5) ---
 class CoverLetter(Base):
     __tablename__ = "cover_letters"
@@ -207,7 +241,10 @@ class CoverLetter(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
     application = relationship("Application", back_populates="cover_letters")
+
+
 # --- EmailPreference (Phase 7) ---
 class EmailPreference(Base):
     __tablename__ = "email_preferences"
@@ -231,7 +268,10 @@ class EmailPreference(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
     user = relationship("User", back_populates="email_preference")
+
+
 # --- ScheduledJobRun (Phase 7) ---
 class ScheduledJobRun(Base):
     __tablename__ = "scheduled_job_runs"
@@ -245,6 +285,8 @@ class ScheduledJobRun(Base):
     emails_sent = Column(Integer, nullable=True)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 # --- Reminder (Phase 2.2) ---
 class Reminder(Base):
     __tablename__ = "reminders"
@@ -268,5 +310,67 @@ class Reminder(Base):
     notified_at = Column(DateTime(timezone=True), nullable=True)
     notification_channel = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
     user = relationship("User", back_populates="reminders")
     application = relationship("Application", back_populates="reminders")
+
+
+# --- Chat (Phase 4) ---
+class Chat(Base):
+    __tablename__ = "chats"
+
+    id = Column(Text, primary_key=True)
+    user_id = Column(
+        String,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    title = Column(Text, nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user = relationship("User", back_populates="chats")
+    messages = relationship(
+        "ChatMessage",
+        back_populates="chat",
+        cascade="all, delete-orphan",
+        order_by="ChatMessage.position",
+    )
+
+
+# --- ChatMessage (Phase 4) ---
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id = Column(Integer, primary_key=True)
+    chat_id = Column(
+        Text,
+        ForeignKey("chats.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    position = Column(Integer, nullable=False)
+    role = Column(Text, nullable=False)
+    # JSONB — Anthropic-shaped content: string OR list of content blocks.
+    content = Column(JSONB, nullable=False)
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    chat = relationship("Chat", back_populates="messages")
+
+    __table_args__ = (
+        UniqueConstraint("chat_id", "position", name="uq_chat_messages_chat_position"),
+    )

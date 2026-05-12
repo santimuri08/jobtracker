@@ -1,7 +1,7 @@
 # backend/app/schemas.py
 from datetime import datetime, date
-from pydantic import BaseModel, ConfigDict
-from typing import Optional, List
+from pydantic import BaseModel, ConfigDict, Field
+from typing import Optional, List, Union, Any
 from app.models import ApplicationStatus, InterviewType, InterviewOutcome
 
 
@@ -302,3 +302,76 @@ class ReminderOut(ORMModel):
     due_at: datetime
     completed_at: Optional[datetime] = None
     created_at: datetime
+
+# ============================================================
+# Phase 4: Chat persistence
+# ============================================================
+
+# Anthropic-shaped content blocks. A message's `content` is either a
+# plain string (simple user message) OR a list of typed blocks
+# (assistant turns with tool_use, user turns with tool_result, etc.).
+# We don't validate block shapes server-side — that's the agent's job;
+# we just pass them through as JSONB.
+
+class ChatMessageIn(BaseModel):
+    """A single message sent up in a PUT /messages body."""
+    role: str = Field(..., pattern="^(user|assistant)$")
+    content: Union[str, list[dict[str, Any]]]
+
+
+class ChatMessageOut(BaseModel):
+    """A single message coming back from GET /chats/{id}."""
+    role: str
+    content: Union[str, list[dict[str, Any]]]
+    position: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ChatListItem(BaseModel):
+    """Compact shape for GET /chats (the sidebar list)."""
+    id: str
+    title: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    message_count: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ChatListOut(BaseModel):
+    chats: list[ChatListItem]
+
+
+class ChatDetail(BaseModel):
+    """Full chat with messages for GET /chats/{id}."""
+    id: str
+    title: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    messages: list[ChatMessageOut]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ChatCreateIn(BaseModel):
+    """POST /chats — id is optional (server generates if absent)."""
+    id: Optional[str] = Field(default=None, max_length=80)
+    title: Optional[str] = Field(default=None, max_length=200)
+
+
+class ChatUpdateIn(BaseModel):
+    """PATCH /chats/{id} — title only for now."""
+    title: Optional[str] = Field(default=None, max_length=200)
+
+
+class MessagesReplaceIn(BaseModel):
+    """PUT /chats/{id}/messages — replaces entire message list."""
+    messages: list[ChatMessageIn]
+
+
+class MessagesReplaceOut(BaseModel):
+    message_count: int
+    updated_at: datetime
+    title: Optional[str] = None

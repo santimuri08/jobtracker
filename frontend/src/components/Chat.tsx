@@ -10,24 +10,20 @@ import {
   type ChatMessage,
 } from "@/lib/agent"
 import {
-  saveChat,
+  saveChat,                  // sync cache write — used for optimistic local mirror
+  saveChatAsync,             // Phase 4: server PUT + cache mirror
+  createChatAsync,           // Phase 4: idempotent server row creation
   getChat,
+  getChatAsync,              // Phase 4: server-first hydration
   setCurrentChatId,
   makeChatId,
 } from "@/lib/chatStorage"
 import { ChatInput } from "./ChatInput"
 
 type Props = {
-  /** Optional text to pre-fill (used by suggestion chips). */
   initialInput?: string
-  /** Imperatively switch the active chat. null = new chat. */
   activeChatId?: string | null
   onActiveChatChange?: (id: string | null) => void
-  /**
-   * If true, the initialInput is sent automatically on mount.
-   * Used by /chat?q= to make the landing page → workspace transition
-   * feel like one continuous action.
-   */
   autoSendOnMount?: boolean
 }
 
@@ -37,25 +33,44 @@ const TOOL_LABELS: Record<string, string> = {
   pipeline_summary: "Checking your pipeline",
   update_application: "Updating application",
   delete_application: "Deleting application",
+  list_resumes: "Listing resumes",
+  link_resume_to_application: "Linking resume",
+  check_application_readiness: "Checking readiness",
   run_gap_analysis: "Running gap analysis",
   generate_cover_letter: "Drafting cover letter",
-  find_similar: "Finding similar roles",
   rewrite_bullet: "Rewriting bullet",
+  find_similar_applications: "Finding similar roles",
+  add_interview_round: "Adding interview round",
+  delete_interview_round: "Removing interview round",
+  add_contact: "Adding contact",
+  add_note: "Adding note",
+  create_reminder: "Setting reminder",
+  list_reminders: "Looking up reminders",
+  complete_reminder: "Marking reminder done",
+  search_jobs: "Searching live jobs",
+  save_job_as_application: "Saving job to tracker",
+}
+
+function openExternal(url: string) {
+  if (typeof window !== "undefined") {
+    window.open(url, "_blank", "noopener,noreferrer")
+  }
 }
 
 /**
  * The conversation surface.
  *
- * This component assumes its parent (WorkspaceShell) provides the
- * sidebar + outer chrome. It paints:
- *   • a scrollable message stream
- *   • the persistent bottom input
- *
- * Empty state is intentionally NOT handled here — by the time this
- * component mounts, /chat has already guaranteed there's either a
- * saved chat to restore or a fresh prompt to send. If you somehow
- * reach an empty state, you'll see a quiet placeholder and the input
- * still works.
+ * Phase 4 persistence:
+ *   • Hydration is cache-first (instant paint from localStorage) then
+ *     server-confirmed via getChatAsync. If the server returns a
+ *     different message list, we replace with the server's truth.
+ *   • Saves go to the server via createChatAsync + saveChatAsync, and
+ *     mirror to localStorage for offline + cache use. Saves are gated
+ *     on `!sending` so we save once per completed user turn, never
+ *     mid-tool-loop (the agent loop emits 4-6 intermediate states per
+ *     turn — we don't want to spam PUTs).
+ *   • If the server is unreachable, we still update the cache and
+ *     fire the sidebar event. The next successful save retries.
  */
 export function Chat({
   initialInput,
@@ -65,6 +80,7 @@ export function Chat({
 }: Props) {
   const { data: session, status } = useSession()
   const isAuthed = status === "authenticated"
+  const token = session?.backendToken
 
   const [chatId, setChatId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -73,11 +89,15 @@ export function Chat({
   const [error, setError] = useState("")
   const [hydrated, setHydrated] = useState(false)
   const autoSentRef = useRef(false)
+  // Tracks the message-count we last persisted, so re-renders that
+  // didn't change `messages` don't trigger redundant PUTs.
+  const lastSavedCountRef = useRef<number>(-1)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   // ── Hydrate from activeChatId ────────────────────────────────────────
+  // Cache-first paint, then server fetch to confirm/replace.
   useEffect(() => {
     if (activeChatId === undefined) {
       setHydrated(true)
@@ -87,39 +107,93 @@ export function Chat({
       setChatId(null)
       setMessages([])
       autoSentRef.current = false
+      lastSavedCountRef.current = -1
       setHydrated(true)
       return
     }
+
+    // 1. Synchronous cache paint
     const saved = getChat(activeChatId)
     if (saved) {
       setChatId(saved.id)
       setMessages(saved.messages)
-      autoSentRef.current = true // existing chat — don't auto-send
+      autoSentRef.current = true
+      lastSavedCountRef.current = saved.messages.length
     } else {
-      setChatId(null)
+      setChatId(activeChatId)
       setMessages([])
+      lastSavedCountRef.current = -1
     }
     setHydrated(true)
-  }, [activeChatId])
+
+    // 2. Server fetch — replaces cache view with truth
+    if (token) {
+      let cancelled = false
+      getChatAsync(token, activeChatId)
+        .then((fresh) => {
+          if (cancelled) return
+          if (fresh) {
+            setChatId(fresh.id)
+            setMessages(fresh.messages)
+            autoSentRef.current = true
+            lastSavedCountRef.current = fresh.messages.length
+          }
+          // If fresh is null (404), chat was deleted server-side.
+          // chat/page.tsx already handles the redirect — we just stay quiet.
+        })
+        .catch((e) => {
+          console.warn("hydrate: server fetch failed, using cache:", e)
+        })
+      return () => { cancelled = true }
+    }
+  }, [activeChatId, token])
 
   // ── Pre-fill the input from initialInput ─────────────────────────────
   useEffect(() => {
     if (initialInput !== undefined) setInput(initialInput)
   }, [initialInput])
 
-  // ── Persist on every message change ──────────────────────────────────
+  // ── Persist on every message change (server + cache) ─────────────────
+  // Gated on !sending so we save once per completed turn, not on every
+  // intermediate tool-loop state. Server write is idempotent on the id,
+  // so re-creating an existing chat is a no-op.
   useEffect(() => {
     if (!hydrated) return
+    if (sending) return
     if (messages.length === 0) return
+    if (messages.length === lastSavedCountRef.current) return
+
     const id = chatId ?? makeChatId()
     if (!chatId) {
       setChatId(id)
       setCurrentChatId(id)
       onActiveChatChange?.(id)
     }
+
+    // Cache mirror first — gives the sidebar event up-to-date data
     saveChat(id, messages)
-    window.dispatchEvent(new Event("jobagent:chats-changed"))
-  }, [messages, chatId, hydrated, onActiveChatChange])
+    const savedCount = messages.length
+    lastSavedCountRef.current = savedCount
+
+    if (token) {
+      ;(async () => {
+        try {
+          await createChatAsync(token, id)
+          await saveChatAsync(token, id, messages)
+          window.dispatchEvent(new Event("jobagent:chats-changed"))
+        } catch (e) {
+          console.warn("save chat to server failed (cache still updated):", e)
+          // Fire the event anyway so the sidebar refreshes from cache.
+          window.dispatchEvent(new Event("jobagent:chats-changed"))
+          // Reset so we retry on the next message
+          lastSavedCountRef.current = savedCount - 1
+        }
+      })()
+    } else {
+      // Unauthenticated edge case (shouldn't happen here, but be safe)
+      window.dispatchEvent(new Event("jobagent:chats-changed"))
+    }
+  }, [messages, chatId, hydrated, sending, token, onActiveChatChange])
 
   // ── Auto-scroll to bottom on new messages ────────────────────────────
   useEffect(() => {
@@ -165,7 +239,6 @@ export function Chat({
     if (!initialInput || !initialInput.trim()) return
     if (messages.length > 0) return
     autoSentRef.current = true
-    // Fire and forget — handleSend reads from input state which we just set
     handleSend(initialInput)
   }, [hydrated, autoSendOnMount, isAuthed, session, initialInput, messages.length, handleSend])
 
@@ -183,7 +256,6 @@ export function Chat({
     }
   }, [messages, session])
 
-  // ── Pair tool results back to their tool_use ids ─────────────────────
   const pairedToolResults = useMemo(() => {
     const map = new Map<string, unknown>()
     for (const m of messages) {
@@ -198,7 +270,6 @@ export function Chat({
     return map
   }, [messages])
 
-  // Filter out user turns that consist ENTIRELY of tool_result blocks
   const visibleMessages = useMemo(() => {
     return messages.filter((m) => {
       if (typeof m.content === "string") return true
@@ -211,9 +282,7 @@ export function Chat({
     <>
       <div ref={scrollRef} className="chat-stream">
         <div className="chat-stream-inner">
-          {visibleMessages.length === 0 && sending && (
-            <ThinkingRow />
-          )}
+          {visibleMessages.length === 0 && sending && <ThinkingRow />}
 
           {visibleMessages.map((m, i) => (
             <MessageRow
@@ -259,7 +328,7 @@ export function Chat({
 }
 
 /* ============================================================
-   Rows
+   Rows + sub-components
    ============================================================ */
 
 function MessageRow({
@@ -341,6 +410,22 @@ function ToolCallPill({ name }: { name: string }) {
   )
 }
 
+function ApplyButton({ url }: { url: string }) {
+  return (
+    <button
+      type="button"
+      onClick={() => openExternal(url)}
+      className="job-card-apply"
+    >
+      View posting
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+        <path d="M7 17L17 7" />
+        <path d="M7 7h10v10" />
+      </svg>
+    </button>
+  )
+}
+
 function ToolResultCard({ name, result }: { name: string; result: unknown }) {
   if (!result || typeof result !== "object") return null
   const r = result as Record<string, unknown>
@@ -361,6 +446,82 @@ function ToolResultCard({ name, result }: { name: string; result: unknown }) {
             <div className="tool-stat-value">{(r.total as number) ?? 0}</div>
           </div>
         </div>
+      </div>
+    )
+  }
+
+  if (name === "search_jobs" && Array.isArray(r.results)) {
+    const jobs = r.results as Array<Record<string, unknown>>
+    if (jobs.length === 0) {
+      return (
+        <div className="text-xs text-[color:var(--text-muted)]">
+          No jobs matched. Try a broader query or different location.
+        </div>
+      )
+    }
+    return (
+      <div className="job-results">
+        {jobs.map((j, i) => {
+          const title = String(j.title || "Untitled role")
+          const company = String(j.company || "Unknown")
+          const location = j.location ? String(j.location) : null
+          const url = j.apply_url ? String(j.apply_url) : null
+          const isRemote = j.is_remote === true
+          const empType = j.employment_type ? String(j.employment_type) : null
+          const desc = j.description ? String(j.description) : ""
+          const snippet = desc.length > 180 ? desc.slice(0, 180).trimEnd() + "…" : desc
+
+          return (
+            <div key={i} className="job-card">
+              <div className="job-card-head">
+                <div className="min-w-0 flex-1">
+                  {url ? (
+                    <button
+                      type="button"
+                      onClick={() => openExternal(url)}
+                      className="job-card-title"
+                    >
+                      {title}
+                    </button>
+                  ) : (
+                    <div className="job-card-title">{title}</div>
+                  )}
+                  <div className="job-card-company">{company}</div>
+                </div>
+                <span className="job-card-index">#{i + 1}</span>
+              </div>
+
+              <div className="job-card-meta">
+                {location && <span>{location}</span>}
+                {isRemote && <span className="job-card-tag">Remote</span>}
+                {empType && <span className="job-card-tag">{empType}</span>}
+              </div>
+
+              {snippet && <p className="job-card-snippet">{snippet}</p>}
+
+              {url && <ApplyButton url={url} />}
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
+  if (name === "save_job_as_application" && r.ok === true) {
+    const a = r.application as Record<string, unknown>
+    const jobUrl = typeof a.job_url === "string" ? a.job_url : null
+    return (
+      <div className="tool-card">
+        <div className="flex items-center justify-between gap-3">
+          <span className="font-medium text-sm">{String(a.company)}</span>
+          <span className="tool-status-pill">{String(a.status)}</span>
+        </div>
+        <div className="text-xs text-[color:var(--text-muted)] mt-1">{String(a.role)}</div>
+        {jobUrl && (
+          <div className="mt-3">
+            <ApplyButton url={jobUrl} />
+          </div>
+        )}
       </div>
     )
   }

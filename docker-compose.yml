@@ -32,6 +32,9 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL}
       EMAIL_TEST_RECIPIENT: ${EMAIL_TEST_RECIPIENT}
+      RAPIDAPI_KEY: ${RAPIDAPI_KEY}
+      JOB_SEARCH_PROVIDER: ${JOB_SEARCH_PROVIDER:-mock}
+      JOB_SEARCH_DEFAULT_COUNTRY: ${JOB_SEARCH_DEFAULT_COUNTRY:-us}
     volumes:
       - ./backend:/app
       - jobtrackr_resume_data:/data/resumes

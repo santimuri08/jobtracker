@@ -18,7 +18,8 @@ import {
 } from "lucide-react"
 import {
   listChats,
-  deleteChat,
+  listChatsAsync,
+  deleteChatAsync,
   setCurrentChatId,
   getCurrentChatId,
   type SavedChat,
@@ -39,8 +40,14 @@ type Props = {
  * Desktop: 260px column. Can collapse to a 56px icon rail.
  * Mobile:  slide-over drawer (320px max) with scrim.
  *
- * Items: New chat, then a scrollable list of Saved Chats, then a fixed
- * footer with Dashboard, Settings, and the user's email + sign-out icon.
+ * Phase 4:
+ *   • Chat list now comes from the server via listChatsAsync.
+ *   • Initial paint uses the localStorage cache (instant) and gets
+ *     replaced by server data when the fetch resolves.
+ *   • Deletes go through the server, then update local state.
+ *   • Refetches when other tabs update via the storage event, or
+ *     when this tab dispatches `jobagent:chats-changed` (Chat.tsx
+ *     fires that event after every save).
  */
 export function WorkspaceSidebar({
   open,
@@ -52,24 +59,51 @@ export function WorkspaceSidebar({
 }: Props) {
   const pathname = usePathname()
   const router = useRouter()
-  const { data: session } = useSession()
+  const { data: session, status } = useSession()
+  const token = session?.backendToken
 
   const [chats, setChats] = useState<SavedChat[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set())
 
-  const refresh = useCallback(() => {
+  // ── Cache-first paint ─────────────────────────────────────────────
+  // Paint whatever's in localStorage immediately so the sidebar isn't
+  // blank during the first server fetch.
+  useEffect(() => {
     setChats(listChats())
     setActiveId(getCurrentChatId())
   }, [])
 
+  // ── Server fetch (the authoritative read) ─────────────────────────
+  const refresh = useCallback(async () => {
+    if (status !== "authenticated" || !token) return
+    setLoading(true)
+    try {
+      const fresh = await listChatsAsync(token)
+      setChats(fresh)
+    } catch (e) {
+      // listChatsAsync internally falls back to cache, so this
+      // catch-block is only hit on truly unexpected errors. Cached
+      // state is whatever was painted in the previous effect.
+      console.warn("sidebar: chat list refresh failed", e)
+    } finally {
+      setLoading(false)
+      setActiveId(getCurrentChatId())
+    }
+  }, [status, token])
+
+  // Refresh on mount + whenever auth changes
+  useEffect(() => { refresh() }, [refresh])
+
+  // Refetch when something else in the app says chats changed
   useEffect(() => {
-    refresh()
-    function onStorage() { refresh() }
-    window.addEventListener("storage", onStorage)
-    window.addEventListener("jobagent:chats-changed", onStorage)
+    function onChange() { refresh() }
+    window.addEventListener("storage", onChange)
+    window.addEventListener("jobagent:chats-changed", onChange)
     return () => {
-      window.removeEventListener("storage", onStorage)
-      window.removeEventListener("jobagent:chats-changed", onStorage)
+      window.removeEventListener("storage", onChange)
+      window.removeEventListener("jobagent:chats-changed", onChange)
     }
   }, [refresh])
 
@@ -99,13 +133,30 @@ export function WorkspaceSidebar({
     onOpenChange(false)
   }
 
-  function handleDelete(e: React.MouseEvent, id: string) {
+  async function handleDelete(e: React.MouseEvent, id: string) {
     e.stopPropagation()
     e.preventDefault()
-    deleteChat(id)
-    refresh()
+    if (!token) return
+
+    // Optimistic UI: remove from list immediately, mark as deleting
+    setDeletingIds((s) => new Set(s).add(id))
+    setChats((cs) => cs.filter((c) => c.id !== id))
     if (activeId === id) onNewChat?.()
-    window.dispatchEvent(new Event("jobagent:chats-changed"))
+
+    try {
+      await deleteChatAsync(token, id)
+      window.dispatchEvent(new Event("jobagent:chats-changed"))
+    } catch (err) {
+      // Rollback on failure: re-fetch authoritative state
+      console.warn("delete failed, re-syncing:", err)
+      await refresh()
+    } finally {
+      setDeletingIds((s) => {
+        const next = new Set(s)
+        next.delete(id)
+        return next
+      })
+    }
   }
 
   const isChatActive = pathname === "/chat"
@@ -182,30 +233,41 @@ export function WorkspaceSidebar({
         {/* ── Saved chats ──────────────────────────────────────── */}
         <div className="ws-sidebar-chats">
           {!collapsed && chats.length > 0 && (
-            <div className="ws-section-label">Chats</div>
+            <div className="ws-section-label">
+              Chats
+              {loading && <span className="ws-section-loading"> · syncing…</span>}
+            </div>
           )}
-          {chats.length === 0 && !collapsed && (
+          {chats.length === 0 && !collapsed && !loading && (
             <div className="ws-empty-hint">
               Your chats will appear here.
+            </div>
+          )}
+          {chats.length === 0 && !collapsed && loading && (
+            <div className="ws-empty-hint">
+              Loading…
             </div>
           )}
           <div className="ws-chat-list">
             {chats.map((c) => {
               const active = c.id === activeId && isChatActive
+              const isDeleting = deletingIds.has(c.id)
               return (
                 <div
                   key={c.id}
-                  onClick={() => handleSelect(c.id)}
+                  onClick={() => !isDeleting && handleSelect(c.id)}
                   onKeyDown={(e) => {
+                    if (isDeleting) return
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault()
                       handleSelect(c.id)
                     }
                   }}
                   role="button"
-                  tabIndex={0}
-                  className={`ws-item ws-item-chat ${active ? "is-active" : ""}`}
+                  tabIndex={isDeleting ? -1 : 0}
+                  className={`ws-item ws-item-chat ${active ? "is-active" : ""} ${isDeleting ? "is-deleting" : ""}`}
                   title={c.title}
+                  aria-busy={isDeleting}
                 >
                   <MessageSquare size={15} strokeWidth={1.75} className="ws-item-icon" />
                   {!collapsed && (
@@ -215,6 +277,7 @@ export function WorkspaceSidebar({
                         onClick={(e) => handleDelete(e, c.id)}
                         aria-label="Delete chat"
                         className="ws-chat-delete"
+                        disabled={isDeleting}
                       >
                         <Trash2 size={12} strokeWidth={1.75} />
                       </button>
@@ -233,7 +296,7 @@ export function WorkspaceSidebar({
             className={`ws-item ${isDashboardActive ? "is-active" : ""}`}
             title="Dashboard"
           >
-            <LayoutDashboard size={16} strokeWidth={1.75} className="ws-item-icon" />
+            <LayoutDashboard size={15} strokeWidth={1.75} className="ws-item-icon" />
             {!collapsed && <span className="ws-item-label">Dashboard</span>}
           </Link>
           <Link
@@ -241,24 +304,23 @@ export function WorkspaceSidebar({
             className={`ws-item ${isSettingsActive ? "is-active" : ""}`}
             title="Settings"
           >
-            <SettingsIcon size={16} strokeWidth={1.75} className="ws-item-icon" />
+            <SettingsIcon size={15} strokeWidth={1.75} className="ws-item-icon" />
             {!collapsed && <span className="ws-item-label">Settings</span>}
           </Link>
 
-          {/* Identity */}
           {!collapsed && session?.user?.email && (
             <div className="ws-user">
-              <div className="ws-user-avatar">
-                {(session.user.email[0] ?? "?").toUpperCase()}
-              </div>
-              <div className="ws-user-email">{session.user.email}</div>
+              <span className="ws-user-avatar">
+                {(session.user.email[0] || "?").toUpperCase()}
+              </span>
+              <span className="ws-user-email">{session.user.email}</span>
               <button
                 onClick={() => signOut({ callbackUrl: "/" })}
                 aria-label="Sign out"
                 className="ws-icon-btn"
                 title="Sign out"
               >
-                <LogOut size={13} strokeWidth={1.75} />
+                <LogOut size={14} strokeWidth={1.75} />
               </button>
             </div>
           )}

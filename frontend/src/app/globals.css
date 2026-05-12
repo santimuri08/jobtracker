@@ -471,6 +471,22 @@ input::placeholder, textarea::placeholder {
   color: var(--text-dim);
 }
 
+/* Phase 4: small "syncing…" indicator inside the section header */
+.ws-section-loading {
+  font-weight: 400;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  text-transform: lowercase;
+  margin-left: 4px;
+}
+
+/* Phase 4: optimistic delete state for sidebar items */
+.ws-item.is-deleting {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
 .ws-empty-hint {
   padding: 8px 10px;
   font-size: 12px;
@@ -689,47 +705,6 @@ input::placeholder, textarea::placeholder {
   position: relative;
 }
 
-.ws-mobile-header {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 52px;
-  padding: 0 12px;
-  padding-top: env(safe-area-inset-top);
-  height: calc(52px + env(safe-area-inset-top));
-  border-bottom: 1px solid var(--border);
-  background: var(--bg);
-  position: sticky;
-  top: 0;
-  z-index: 5;
-}
-.ws-mobile-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 14px;
-  letter-spacing: -0.01em;
-  color: var(--text);
-  text-decoration: none;
-}
-
-.ws-desktop-header {
-  flex-shrink: 0;
-  align-items: center;
-  gap: 10px;
-  height: 48px;
-  padding: 0 var(--ws-gutter-lg);
-  border-bottom: 1px solid var(--border);
-  background: var(--bg);
-}
-.ws-desktop-title {
-  font-size: 13px;
-  color: var(--text-muted);
-}
-
 .ws-content {
   flex: 1;
   min-height: 0;
@@ -927,6 +902,116 @@ input::placeholder, textarea::placeholder {
   color: var(--accent);
   border-radius: var(--radius-xs);
   flex-shrink: 0;
+}
+
+/* Job search result cards (Phase 3) */
+.job-results {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.job-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color var(--duration-base) var(--ease);
+}
+.job-card:hover {
+  border-color: var(--border-strong);
+}
+.job-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.job-card-title {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+  line-height: 1.35;
+}
+button.job-card-title {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+.job-card-title:hover {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+button.job-card-apply {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  font: inherit;
+}
+.job-card-company {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.job-card-index {
+  font-family: var(--font-display);
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+.job-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.job-card-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: var(--radius-xs);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 500;
+}
+.job-card-snippet {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  margin: 0;
+}
+.job-card-apply {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+  width: fit-content;
+  font-weight: 500;
+}
+.job-card-apply:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
 }
 
 .chat-error {
@@ -1345,6 +1430,6 @@ input::placeholder, textarea::placeholder {
   .scroll-fade {
     animation: scroll-fade-up linear;
     animation-timeline: view();
-    animation-range: entry 0% cover 40%;
+    annotation-range: entry 0% cover 40%;
   }
 }

@@ -16,8 +16,10 @@ from app.routers import (
     gap_analyses,
     cover_letters,
     bullet_rewrites,
+    chats,
     email_preferences,
     similar_applications,
+    job_search,
     reminders,
     agent,
 )
@@ -31,13 +33,11 @@ from app.scheduler import start_scheduler, stop_scheduler
 # our routers and services go nowhere. Configure once at startup so
 # everything written through the standard `logging` API ends up in
 # `docker compose logs backend`.
-
 def _configure_logging() -> None:
     root = logging.getLogger()
     # Only configure once — avoid duplicate handlers if uvicorn reloads.
     if any(getattr(h, "_jobagent_handler", False) for h in root.handlers):
         return
-
     handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(logging.INFO)
     handler.setFormatter(
@@ -49,7 +49,6 @@ def _configure_logging() -> None:
     handler._jobagent_handler = True  # marker so we don't double-add
     root.addHandler(handler)
     root.setLevel(logging.INFO)
-
     # Quiet down the noisiest third-party loggers
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -102,5 +101,7 @@ app.include_router(cover_letters.router)
 app.include_router(bullet_rewrites.router)
 app.include_router(email_preferences.router)
 app.include_router(similar_applications.router)
+app.include_router(job_search.router)
 app.include_router(reminders.router)
 app.include_router(agent.router)
+app.include_router(chats.router)

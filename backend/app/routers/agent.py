@@ -51,6 +51,7 @@ from app.models import (
 from app.services.gap_analysis import run_gap_analysis
 from app.services.cover_letter import run_cover_letter
 from app.services.bullet_rewriter import run_bullet_rewrite
+from app.services.job_search import get_provider as get_job_provider
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,10 @@ Applications:
 - Add, update, list, delete applications.
 - Show a pipeline summary by status.
 - Check whether an application is ready for AI features (has JD + parsed resume).
+
+Job search (live external listings):
+- Search live job postings via the provider integration (Indeed, LinkedIn, Glassdoor, ZipRecruiter — aggregated). Use when the user asks about jobs they HAVEN'T saved yet — e.g. "find senior backend jobs remote", "any new fintech openings in NYC", "what's out there for a UX role in Berlin".
+- Save a job found via search directly as an application (status=saved). Use when the user says "save the third one" or "track that one" referring to a result from a recent search_jobs call. Pass the title, company, location, apply URL, and full description back so the new application row is rich enough for gap analysis later.
 
 AI features per application:
 - Run a gap analysis (resume vs. job description).
@@ -116,9 +121,7 @@ Resumes:
 - For reminders, ALWAYS convert the user's natural date/time phrase to ISO 8601 (YYYY-MM-DDTHH:MM:SSZ) yourself before calling create_reminder. The tool will reject anything else. If the user is vague about the time (just "Friday"), default to 9am their local time and confirm.
 
 ## What you CANNOT do (be honest about these)
-
 - Send emails on the user's behalf.
-- Scrape live job postings from job sites.
 - Make phone calls or send SMS.
 - Modify the user's calendar (you can suggest interview times but not add to Google Calendar).
 - Export data as a downloadable file (the dashboard has CSV export instead).
@@ -152,6 +155,79 @@ TOOLS: list[dict[str, Any]] = [
                 "applied_date": {"type": "string", "description": "ISO date (YYYY-MM-DD) if mentioned."},
                 "source": {"type": "string", "description": "Where they found the job (LinkedIn, referral, etc.)."},
                 "resume_id": {"type": "integer", "description": "ID of a resume to link to this application."},
+            },
+            "required": ["company", "role"],
+        },
+    },
+    # ---- Job search (Phase 3) ----
+    {
+        "name": "search_jobs",
+        "description": (
+            "Search live external job listings (Indeed, LinkedIn, Glassdoor, ZipRecruiter — aggregated). "
+            "Use when the user asks about jobs they haven't saved yet. "
+            "Returns a list of listings each with external_id, title, company, location, apply_url, "
+            "and description. Show the user a clean summary; the full list stays in conversation "
+            "context for follow-ups like 'save the second one'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Keyword/title query, e.g. 'senior backend engineer' or 'UX designer fintech'.",
+                },
+                "location": {
+                    "type": "string",
+                    "description": "City, state, or country string. Omit for any location.",
+                },
+                "remote": {
+                    "type": "boolean",
+                    "description": "True for remote-only. Omit for either.",
+                },
+                "employment_type": {
+                    "type": "string",
+                    "enum": ["fulltime", "parttime", "contract", "internship", "temporary"],
+                    "description": "Optional employment type filter.",
+                },
+                "country": {
+                    "type": "string",
+                    "description": "ISO 2-letter country code, lowercase (e.g. 'us', 'ca', 'gb'). Defaults to 'us'.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results (1-20, default 5).",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "save_job_as_application",
+        "description": (
+            "Save a job from a recent search_jobs result as an application in the user's tracker. "
+            "Status will be 'saved'. Use when the user says 'save the first one', 'track that', "
+            "'add this to my list', etc., referring to a result from search_jobs. "
+            "Pass the fields from the chosen listing so the saved application is complete enough for "
+            "gap analysis and cover-letter generation later."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "company": {"type": "string", "description": "Company name from the listing."},
+                "role": {"type": "string", "description": "Job title from the listing."},
+                "location": {"type": "string", "description": "Location string if known."},
+                "job_url": {"type": "string", "description": "Apply URL from the listing. Required for the user to be able to actually apply later."},
+                "job_description": {"type": "string", "description": "Full job description text from the listing."},
+                "salary_min": {"type": "number"},
+                "salary_max": {"type": "number"},
+                "source": {
+                    "type": "string",
+                    "description": "Where the listing came from. Use the 'provider' field from the search result (e.g. 'jsearch').",
+                },
+                "external_id": {
+                    "type": "string",
+                    "description": "Provider's own job ID (for tracking, optional).",
+                },
             },
             "required": ["company", "role"],
         },
@@ -1072,6 +1148,118 @@ def _tool_complete_reminder(db: Session, user_id: str, args: dict) -> dict:
         "message": obj.message,
         "completed_at": obj.completed_at.isoformat(),
     }
+# ---------- Phase 3: job search executors ----------
+
+def _tool_search_jobs(db: Session, user_id: str, args: dict) -> dict:
+    """Call the active job provider and return a trimmed result set."""
+    query = (args.get("query") or "").strip()
+    if not query:
+        return {"ok": False, "error": "query is required"}
+
+    limit = args.get("limit") or 5
+    try:
+        limit = int(limit)
+    except (TypeError, ValueError):
+        limit = 5
+    limit = max(1, min(limit, 20))
+
+    country = (args.get("country") or settings.job_search_default_country or "us").lower().strip()
+
+    provider = get_job_provider()
+
+    try:
+        listings = provider.search(
+            query=query,
+            location=args.get("location"),
+            remote=args.get("remote"),
+            employment_type=args.get("employment_type"),
+            country=country,
+            limit=limit,
+        )
+    except RuntimeError as e:
+        logger.warning("agent search_jobs provider error: %s", e)
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        logger.exception("agent search_jobs failed")
+        return {"ok": False, "error": f"Search failed: {type(e).__name__}"}
+
+    # Trim description for token economy. The agent gets enough to summarize;
+    # if it needs more it can call search_jobs again with a tighter query.
+    trimmed = []
+    for j in listings:
+        d = j.to_public_dict()
+        desc = d.get("description") or ""
+        if len(desc) > 600:
+            d["description"] = desc[:600].rstrip() + "…"
+        trimmed.append(d)
+
+    return {
+        "ok": True,
+        "provider": provider.name,
+        "count": len(trimmed),
+        "results": trimmed,
+    }
+
+
+def _tool_save_job_as_application(db: Session, user_id: str, args: dict) -> dict:
+    """Persist a job result as an Application row with status=saved, with embedding."""
+    from app.services.embeddings import build_application_text, embed_document
+
+    company = (args.get("company") or "").strip()
+    role = (args.get("role") or "").strip()
+    if not company or not role:
+        return {"ok": False, "error": "company and role are required"}
+
+    payload = {
+        "company": company,
+        "role": role,
+        "location": args.get("location") or None,
+        "job_url": args.get("job_url") or None,
+        "job_description": args.get("job_description") or None,
+        "salary_min": args.get("salary_min"),
+        "salary_max": args.get("salary_max"),
+        "source": args.get("source") or "jsearch",
+        "status": ApplicationStatus.saved,
+    }
+    # Drop None values so we let DB defaults / nullables behave naturally
+    payload = {k: v for k, v in payload.items() if v is not None}
+
+    app_obj = Application(**payload, user_id=user_id)
+
+    # Auto-embed if there's a JD. Same pattern as routers/applications.py
+    # `_maybe_embed`. We don't import that helper because it's local to that
+    # router module; replicating the 8-line logic here keeps coupling clean.
+    if app_obj.job_description and app_obj.job_description.strip():
+        try:
+            text = build_application_text(
+                company=app_obj.company,
+                role=app_obj.role,
+                location=app_obj.location,
+                job_description=app_obj.job_description,
+            )
+            app_obj.embedding = embed_document(text)
+        except Exception as e:
+            logger.warning(
+                "save_job_as_application: embedding failed for %s: %s — saving anyway",
+                company, e,
+            )
+            app_obj.embedding = None
+
+    db.add(app_obj)
+    db.commit()
+    db.refresh(app_obj)
+
+    logger.info(
+        "agent save_job_as_application user=%s app_id=%s company=%s source=%s has_emb=%s",
+        user_id, app_obj.id, company, payload.get("source"),
+        app_obj.embedding is not None,
+    )
+
+    return {
+        "ok": True,
+        "application": _serialize_app(app_obj),
+        "external_id": args.get("external_id"),
+    }
 
 
 TOOL_EXECUTORS = {
@@ -1101,6 +1289,8 @@ TOOL_EXECUTORS = {
     "create_reminder": _tool_create_reminder,
     "list_reminders": _tool_list_reminders,
     "complete_reminder": _tool_complete_reminder,
+    "search_jobs": _tool_search_jobs,
+    "save_job_as_application": _tool_save_job_as_application,
 }
 
 

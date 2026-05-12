@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     resend_api_key: str = ""
     resend_from_email: str = "onboarding@resend.dev"
     email_test_recipient: str = ""
+    # Phase 3: job search
+    rapidapi_key: str = ""
+    job_search_provider: str = "mock"
+    job_search_default_country: str = "us"
 
     model_config = SettingsConfigDict(
         env_file=".env",
