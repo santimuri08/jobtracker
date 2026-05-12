@@ -1,5 +1,6 @@
 # backend/app/main.py
 import logging
+import os
 import sys
 from contextlib import asynccontextmanager
 
@@ -72,9 +73,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="JobTrackr Backend", lifespan=lifespan)
 
+# CORS — driven by env var so prod and local both work.
+# Local default: http://localhost:3000
+# Production (Railway): set CORS_ORIGINS=https://your-frontend.up.railway.app
+_allowed_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[o.strip() for o in _allowed_origins if o.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

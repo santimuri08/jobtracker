@@ -1,5 +1,6 @@
 # backend/app/routers/resumes.py
 import logging
+import os
 import uuid
 from pathlib import Path
 
@@ -17,7 +18,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/resumes", tags=["resumes"])
 
-RESUME_STORAGE_ROOT = Path("/data/resumes")
+# Storage root — env-driven so prod (Railway volume) and local both work.
+# Local default: /data/resumes (matches the docker-compose volume mount)
+# Production (Railway): set RESUME_STORAGE_ROOT=/data/resumes (or wherever
+# the attached volume mounts).
+RESUME_STORAGE_ROOT = Path(os.getenv("RESUME_STORAGE_ROOT", "/data/resumes"))
 MAX_RESUME_BYTES = 5 * 1024 * 1024  # 5 MB
 ALLOWED_CONTENT_TYPES = {"application/pdf"}
 
